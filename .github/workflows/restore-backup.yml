@@ -3,8 +3,6 @@ name: Restore repository from complete backup
 on:
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/restore-backup.yml"
   workflow_dispatch:
 
 permissions:
