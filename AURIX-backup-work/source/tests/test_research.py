@@ -47,3 +47,37 @@ def test_missing_robots_file_is_allowed(monkeypatch):
     transport = httpx.MockTransport(lambda request: httpx.Response(404, content=b"missing"))
     with httpx.Client(transport=transport) as client:
         assert research._robots_allows(client, "https://example.org/page", 2.0) is True
+
+
+def test_robots_blocked_page_is_reported_with_its_own_source(monkeypatch):
+    """Regression: the robots.txt branch used `section` before assignment (UnboundLocalError)."""
+    import json
+    import httpx
+    import aurix.research as research
+
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/search":
+            results = [
+                {"url": "https://blocked.example/page", "title": "Blocked", "content": "snippet-b"},
+                {"url": "https://other.example/page", "title": "Other", "content": "snippet-o"},
+            ]
+            return httpx.Response(200, content=json.dumps({"results": results}).encode())
+        if request.url.path == "/robots.txt":
+            if request.url.host == "blocked.example":
+                return httpx.Response(200, content=b"User-agent: *\nDisallow: /\n")
+            return httpx.Response(404, content=b"missing")
+        return httpx.Response(200, headers={"content-type": "text/plain"}, content=b"page body")
+
+    real_client = httpx.Client
+    monkeypatch.setattr(research.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+
+    out = research.SearxResearchAdapter("https://searx.example")("query")
+
+    blocked, other = out.split("\n\n---\n\n")
+    assert "SOURCE: https://blocked.example/page" in blocked
+    assert "TITLE: Blocked" in blocked
+    assert "robots.txt disallows" in blocked
+    assert "SOURCE: https://other.example/page" in other
+    assert "PAGE EXTRACT: page body" in other

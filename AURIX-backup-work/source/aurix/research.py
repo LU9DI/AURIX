@@ -138,6 +138,7 @@ class SearxResearchAdapter:
                 title = str(item.get("title", "Untitled"))[:300]
                 snippet = str(item.get("content", ""))[:1200]
                 body = ""
+                section = f"SOURCE: {url}\nTITLE: {title}\nSEARCH SNIPPET: {snippet}"
                 if self.fetch_pages:
                     try:
                         _assert_public_http_url(url)
@@ -158,7 +159,6 @@ class SearxResearchAdapter:
                                 body = page_bytes.decode("utf-8", errors="replace")[:5000]
                     except (ValueError, httpx.HTTPError, UnicodeError):
                         body = ""
-                section = f"SOURCE: {url}\nTITLE: {title}\nSEARCH SNIPPET: {snippet}"
                 if body:
                     section += f"\nPAGE EXTRACT: {body}"
                 blocks.append(section)
