@@ -6,7 +6,9 @@ features beyond /v1/chat/completions.
 """
 from __future__ import annotations
 
+import ipaddress
 import os
+from urllib.parse import urlparse
 
 import httpx
 
@@ -16,6 +18,29 @@ def _output_limit() -> int:
         return int(os.getenv("AURIX_MAX_OUTPUT_TOKENS", "2048"))
     except ValueError:
         return 2048
+
+
+def _is_local_host(host: str) -> bool:
+    """True for loopback, private/link-local addresses and *.local / localhost names."""
+    host = host.rstrip(".").lower()
+    if host == "localhost" or host.endswith((".localhost", ".local")):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private or address.is_link_local
+
+
+def _require_secure_transport_for_key(base_url: str, api_key: str) -> None:
+    """Refuse to send a bearer token in clear text to a non-local host."""
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("AURIX_BASE_URL must be an absolute HTTP(S) URL")
+    if api_key and parsed.scheme == "http" and not _is_local_host(parsed.hostname):
+        raise ValueError(
+            "Refusing to send AURIX_API_KEY over plaintext HTTP to a non-local host; use an https:// base URL"
+        )
 
 
 class OpenAICompatibleProvider:
@@ -30,6 +55,7 @@ class OpenAICompatibleProvider:
         self.base_url = (base_url or os.getenv("AURIX_BASE_URL", "http://localhost:1234/v1")).rstrip("/")
         self.api_key = api_key if api_key is not None else os.getenv("AURIX_API_KEY", "")
         self.timeout = max(1.0, float(timeout))
+        _require_secure_transport_for_key(self.base_url, self.api_key)
 
     def generate(self, prompt: str, *, system: str = "") -> str:
         messages = ([{"role": "system", "content": system}] if system else [])
