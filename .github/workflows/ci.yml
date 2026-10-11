@@ -1,0 +1,39 @@
+name: CI
+# The project lives in AURIX-backup-work/source; GitHub only discovers workflows in the
+# repository-root .github/workflows, so this file runs the project's checks from there.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+defaults:
+  run:
+    working-directory: AURIX-backup-work/source
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: AURIX-backup-work/source/pyproject.toml
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m compileall -q aurix tests
+      - run: pytest -q
+  lint:
+    # Informational for now: `ruff check .` currently reports ~140 findings (mostly import
+    # order / formatting). Remove continue-on-error once they are fixed to make it a gate.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "ruff>=0.5,<1"
+      - run: ruff check .
