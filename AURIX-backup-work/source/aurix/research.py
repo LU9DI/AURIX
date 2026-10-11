@@ -53,7 +53,13 @@ def clean_html(html: str, *, max_chars: int = 6000) -> str:
     return text[:max(100, min(int(max_chars), 20000))]
 
 
-def _assert_public_http_url(url: str) -> None:
+def _resolve_public_ips(url: str) -> tuple[str, ...]:
+    """Validate a research URL and return the public IP addresses its host resolves to.
+
+    The caller must connect to one of the returned addresses instead of resolving the
+    hostname a second time, otherwise a DNS answer that changes between this check and
+    the connection (DNS rebinding) could point the request at a private address.
+    """
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("Only absolute HTTP(S) URLs without credentials are allowed")
@@ -61,13 +67,38 @@ def _assert_public_http_url(url: str) -> None:
     if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal", ".localhost")):
         raise ValueError("Private/local hostnames are not allowed as research targets")
     try:
-        addresses = {ipaddress.ip_address(host)} if _is_ip(host) else {
+        addresses = [ipaddress.ip_address(host)] if _is_ip(host) else [
             ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
-        }
+        ]
     except (OSError, ValueError) as exc:
         raise ValueError("Research target hostname could not be resolved safely") from exc
     if not addresses or any(not addr.is_global for addr in addresses):
         raise ValueError("Research targets must resolve only to public IP addresses")
+    return tuple(dict.fromkeys(str(addr) for addr in addresses))
+
+
+def _assert_public_http_url(url: str) -> None:
+    _resolve_public_ips(url)
+
+
+def _pin_to_validated_ip(url: str) -> tuple[str, dict[str, str], dict[str, str]]:
+    """Return (url using the validated IP, extra headers, request extensions).
+
+    The original hostname is preserved in the Host header and as the TLS SNI/verification
+    name, so certificates are still checked against the real hostname.
+    """
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if _is_ip(host.rstrip(".")):
+        _resolve_public_ips(url)
+        return url, {}, {}
+    ip = _resolve_public_ips(url)[0]
+    ip_host = f"[{ip}]" if ":" in ip else ip
+    netloc = ip_host + (f":{parsed.port}" if parsed.port else "")
+    host_header = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
+    pinned = parsed._replace(netloc=netloc).geturl()
+    extensions = {"sni_hostname": parsed.hostname} if parsed.scheme == "https" else {}
+    return pinned, {"Host": host_header}, extensions
 
 
 def _is_ip(host: str) -> bool:
@@ -80,11 +111,19 @@ def _is_ip(host: str) -> bool:
 
 def _get_limited(client: httpx.Client, url: str, *, max_bytes: int,
                  headers: dict[str, str] | None = None, timeout: float | None = None,
-                 raise_for_status: bool = True) -> tuple[int, dict[str, str], bytes]:
-    """Read a response incrementally and abort before unbounded body buffering."""
+                 raise_for_status: bool = True, pin_public_ip: bool = False) -> tuple[int, dict[str, str], bytes]:
+    """Read a response incrementally and abort before unbounded body buffering.
+
+    With ``pin_public_ip`` the hostname is resolved once, validated as public, and the
+    connection is made to that exact address (no second, attacker-influenced DNS lookup).
+    """
     chunks: list[bytes] = []
     total = 0
-    with client.stream("GET", url, headers=headers, timeout=timeout) as response:
+    extensions: dict[str, str] = {}
+    if pin_public_ip:
+        url, extra_headers, extensions = _pin_to_validated_ip(url)
+        headers = {**(headers or {}), **extra_headers}
+    with client.stream("GET", url, headers=headers, timeout=timeout, extensions=extensions) as response:
         if raise_for_status:
             response.raise_for_status()
         length = response.headers.get("content-length")
@@ -141,7 +180,6 @@ class SearxResearchAdapter:
                 section = f"SOURCE: {url}\nTITLE: {title}\nSEARCH SNIPPET: {snippet}"
                 if self.fetch_pages:
                     try:
-                        _assert_public_http_url(url)
                         if not _robots_allows(client, url, self.timeout_seconds):
                             blocks.append(section + "\nPAGE EXTRACT: Skipped because robots.txt disallows this crawler or could not be checked safely.")
                             continue
@@ -149,7 +187,7 @@ class SearxResearchAdapter:
                         page_status, page_headers, page_bytes = _get_limited(
                             client, url, max_bytes=2_000_000,
                             headers={"Accept": "text/html,text/plain,text/markdown,application/xhtml+xml"},
-                            timeout=self.timeout_seconds)
+                            timeout=self.timeout_seconds, pin_public_ip=True)
                         if page_status == 200:
                             content_type = page_headers.get("content-type", "").lower()
                             if "text/html" in content_type or "application/xhtml+xml" in content_type:
@@ -169,10 +207,10 @@ def _robots_allows(client: httpx.Client, url: str, timeout_seconds: float) -> bo
     """Fail closed on robots.txt transport errors; a missing robots.txt permits fetching."""
     parsed = urlparse(url)
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-    _assert_public_http_url(robots_url)
     try:
         robots_status, _, robots_bytes = _get_limited(
-            client, robots_url, max_bytes=200_000, timeout=min(timeout_seconds, 5.0), raise_for_status=False)
+            client, robots_url, max_bytes=200_000, timeout=min(timeout_seconds, 5.0), raise_for_status=False,
+            pin_public_ip=True)
     except (httpx.HTTPError, ValueError):
         return False
     if robots_status == 404:
