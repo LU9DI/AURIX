@@ -23,13 +23,13 @@
 
 ## Findings and gaps
 
-### R-01 — Output truncation is not a process-memory bound
+### R-01 — Output truncation is not a process-memory bound — mitigation implemented; residual verification remains
 
-**Evidence:** `rea.py` calls `subprocess.run(..., capture_output=True)` and truncates stdout/stderr only after the child exits. The MCP adapter reads stdout one complete line at a time, puts lines on an unbounded `queue.Queue`, and checks `MAX_MCP_MESSAGE_CHARS` only after dequeueing.
+**Evidence (updated 2026-10-12):** `rea.py` now drains stdout and stderr on dedicated threads into bounded byte buffers and terminates the direct child on a combined output-budget breach or timeout. `rea_mcp.py` now uses a bounded message queue and bounded `readline` calls, rejects oversized frames before JSON parsing, and terminates the direct child on an oversized frame. Regression tests cover CLI output-budget termination and MCP over-limit frames.
 
-**Impact:** a malfunctioning or unexpectedly noisy REA process can cause AURIX to buffer output in memory before the existing response-size limits take effect. The current limits bound returned text, but do not strictly bound peak memory consumption. This is a local child-process resource-exhaustion concern; no exploit was executed.
+**Impact:** the original unbounded-buffering design gap is mitigated for retained CLI output and MCP frame/queue sizes. This does not establish a strict whole-process-tree memory bound: the CLI runner terminates the direct child, not a verified process group, and the MCP lifecycle still needs broader fault-injection coverage. The implementation uses character limits for MCP framing and a byte budget for CLI output. No hostile executable was run.
 
-**Recommended remediation:** for the CLI path, stream stdout/stderr into bounded buffers while draining both pipes, terminate the child on hard output-budget breach, and return an explicit `output_limit_exceeded` status. For MCP, enforce a byte/character cap while reading chunks (before constructing an arbitrarily long line), bound the inter-thread queue, and terminate the child on protocol-budget violation. Ensure both pipes continue to be drained or the child is stopped to avoid deadlocks.
+**Remaining remediation:** add deterministic tests for process descendants, timeout/termination races, stalled MCP initialization, malformed JSON-RPC, nonzero exits, and stderr flooding. Consider OS-level resource limits and process-group cleanup where supported.
 
 **Priority:** medium for deployments where the REA executable/provider is not fully trusted; lower where it is a pinned, locally trusted binary. Do not describe this as a confirmed remote vulnerability.
 
@@ -73,4 +73,4 @@ The adapters do not launch the analyzed target application, which is a meaningfu
 
 ## Next action
 
-Implement R-01 with streaming bounded output and add regression tests for R-01/R-02. Run the full CI suite and record the exact commit/run. R-03 remains a deployment/documentation boundary and must not be represented as solved by Python path validation alone.
+R-01 mitigation was committed on `main` in commits `95ffbd8`, `0360499`, `a27df16`, `d819ec3`, `75b16f4`, and related regression-test commits. The prior CI run at [`7e50db7`](https://github.com/LU9DI/AURIX/actions/runs/38315306950) passed. A further CI run for the newest MCP boundary tests is pending at the time of this update; verify it before marking the new tests green. R-02 remains open for the failure cases listed above. R-03 remains a deployment/documentation boundary and must not be represented as solved by Python path validation alone.
