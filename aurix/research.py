@@ -149,7 +149,11 @@ class PublicIPPinningTransport(httpx.BaseTransport):
             if parsed.scheme == "https"
             else _PinnedHTTPConnection(host, port, addresses[0], timeout)
         )
-        headers = dict(request.headers)
+        headers = {
+            name.title(): value
+            for name, value in request.headers.items()
+            if name.lower() not in {"host", "connection", "accept-encoding"}
+        }
         headers["Host"] = parsed.netloc
         headers["Connection"] = "close"
         headers["Accept-Encoding"] = "identity"
