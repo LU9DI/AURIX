@@ -45,7 +45,7 @@ def _docker_command(
     container_name: str,
     test_paths: Sequence[str] | None = None,
 ) -> list[str]:
-    """Build a network-disabled, read-only-root Docker invocation with one writable mount."""
+    """Build a network-disabled Docker invocation with a read-only workspace mount."""
     if not isinstance(image, str) or not _IMAGE_RE.fullmatch(image) or image.startswith("-"):
         raise ValueError(
             "Invalid Docker image reference; provide a simple operator-controlled image name"
@@ -105,9 +105,9 @@ def run_test_suite(
 
     ``trusted`` executes on the host and is not a sandbox. ``docker`` uses an
     already-present image, disables networking, drops Linux capabilities, makes
-    the container root filesystem read-only, and mounts only the workspace. It
-    still exposes the mounted workspace read/write and is not a perfect security
-    boundary; use a dedicated daemon and operator-reviewed image for hostile code.
+    the container root filesystem read-only, and mounts the workspace read-only.
+    This is defense in depth, not a complete VM boundary; use a dedicated daemon
+    and operator-reviewed image for hostile code.
     """
     if not confirm:
         raise PermissionError("Explicit confirmation is required to execute tests")
@@ -173,7 +173,7 @@ def run_test_suite(
         security_note = (
             "Docker isolation enabled using the inspected immutable image ID: network disabled, "
             "container root filesystem read-only, "
-            "capabilities dropped, resource limits applied, workspace mounted writable. "
+            "capabilities dropped, resource limits applied, workspace mounted read-only. "
             "Image dependencies must be preinstalled; no image pull or host fallback occurs."
         )
     else:
