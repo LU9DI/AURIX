@@ -175,3 +175,14 @@ The current `aurix/tools/workspace.py::safe_path` explicitly checks each lexical
 ### Updated command-flow conclusion
 
 The review now confirms a meaningful distinction between interactive command confirmation and automatic test execution. The remaining question is not simply whether “commands are approved,” but which origin (user, model suggestion, or configured test), which executor, which environment, and which output-to-model path applies. No exploit was demonstrated, and the upstream revision was not executed.
+
+
+## Sixth-pass finding: case-variant ignored paths in AURIX
+
+**Date:** 2026-10-12. This finding concerns AURIX's workspace policy, discovered while translating the Aider path-authorization audit into regression tests; it is not an Aider vulnerability finding.
+
+- **Issue:** `aurix/tools/workspace.py::_is_ignored` originally compared path components against `IGNORED_DIRS` case-sensitively. On case-sensitive filesystems, a directory such as `.GIT` is distinct from `.git`; on commonly case-insensitive filesystems, case variants can alias the same protected directory. A case-sensitive policy comparison is therefore not portable and can fail to apply the intended exclusion on a case-variant path.
+- **Fix:** normalize path components and ignored directory names with `casefold()` before comparison.
+- **Regression coverage:** a test creates `.GIT/config` and `.VENV/credentials.txt` sentinels and verifies workspace context building, listing, search, direct text reads, and line reads all exclude or reject those targets.
+- **Verification status:** code and test changes are published in commits [da4714e](https://github.com/LU9DI/AURIX/commit/da4714e2b39a275c1c53b888a00a8460fca25081) and [94097bd](https://github.com/LU9DI/AURIX/commit/94097bd917e639dd95c3901fdc829eba4a4eb4ab). CI verification is pending at the time of this note.
+- **Residual limitation:** this is defense-in-depth for path-policy consistency, not a solution to check/use races if an attacker can mutate the workspace filesystem concurrently. Descriptor-relative safe opening or an OS isolation boundary needs separate design and platform-specific testing.
