@@ -68,3 +68,42 @@ Inspect how Aider selects repository context, structures its edit loop, applies 
 - [ ] Run only in a disposable environment if dynamic validation becomes necessary.
 - [ ] Record a controlled AURIX baseline before adopting any pattern.
 
+
+
+## Second-pass review: command execution and patch application
+
+**Scope extension (2026-10-12):** inspected the pinned versions of `aider/coders/base_coder.py`, `aider/commands.py`, `aider/run_cmd.py`, and `aider/coders/patch_coder.py`. This remained static source inspection; no target code or commands were executed.
+
+7. **Command execution has multiple entry points, not one approval gate**
+   - Evidence: [`aider/coders/base_coder.py`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/coders/base_coder.py) calls `run_cmd` for command lists; [`aider/commands.py`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/commands.py) implements `/run`, `/test`, and `/git` paths, with some commands using `subprocess.run(..., shell=True)` directly.
+   - Observation: interactive user commands, test commands, git commands, and suggested command workflows are separate paths. A review limited to the main `run_cmd` helper would miss other execution surfaces.
+   - Security interpretation: trace configuration and consent separately for every entry point, especially automatic tests and any model-suggested commands. Shell execution is a capability boundary; whether it is acceptable depends on the trust model and settings. This is not, by itself, proof of a vulnerability.
+   - AURIX implication: keep process invocation behind a small, auditable policy boundary; prefer argument arrays with `shell=False`; distinguish explicit user actions from model-originated actions; and test that denial/disabled policy is enforced for every path.
+
+8. **Patch parsing and applying are distinct, and writes are sequential**
+   - Evidence: [`aider/coders/patch_coder.py`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/coders/patch_coder.py) parses patch actions and reads source context before application. Its `apply_edits` iterates through actions and performs file operations in sequence (create parent directories/write additions, unlink deletions, read and rewrite updates).
+   - Observation: a multi-file patch can perform earlier filesystem changes before a later action fails unless another layer compensates. The inspected implementation does not establish a transaction covering all paths.
+   - Confidence: high for sequential application; unknown whether all failure paths are compensated elsewhere. Do not state that rollback is absent across the entire product without tracing callers, Git recovery behavior, and tests.
+   - AURIX implication: stage edits in memory, validate all paths and operations first, then apply atomically where practical. If true multi-file atomicity is unavailable, record a journal/backups and test failures after the first, middle, and last operation.
+
+9. **Path authorization needs to be evaluated at the write boundary**
+   - Evidence: `PatchCoder.get_edits` resolves patch paths through `abs_root_path` to load context, while the application loop resolves paths again before writing. Base orchestration filters edits through `allowed_to_edit`.
+   - Observation: layered checks exist, but this static pass has not yet established that every add/update/delete/move destination, symlink race, and canonicalized path is consistently constrained at the moment of mutation.
+   - AURIX implication: revalidate containment and symlink policy immediately before mutation; validate both source and destination for moves; reject absolute paths, traversal, duplicate/conflicting actions and symlink components; add regression tests for each action type.
+
+10. **Dry-run is useful but not equivalent to an isolated transaction**
+    - Evidence: `Coder.apply_updates` orders operations as parse edits → dry-run → prepare/authorize edits → apply edits.
+    - Observation: dry-run is a validation stage, not proof that the filesystem will remain unchanged between validation and write, nor proof that later operations cannot fail.
+    - AURIX implication: make validation side-effect-free, minimize the time between validation and mutation, recheck target identity/containment before writes, and test TOCTOU and partial-failure scenarios.
+
+## AURIX-specific note from this pass
+
+The current `aurix/tools/workspace.py::safe_path` explicitly checks each lexical path component for symlinks before resolving the final path and verifies workspace containment. The REA adapter uses this helper and invokes the executable as an argument array with `shell=False`, a reduced environment, bounded timeout, and bounded returned output. These are positive design properties based on source inspection, not a claim of a complete sandbox: REA itself is a separate process, provider backends may perform external analysis, and process/resource limits beyond the timeout and output handling require separate review.
+
+## Updated priorities
+
+- [ ] Trace every Aider command entry point to its exact approval/configuration logic, including `/run`, `/test`, `/git`, and model-suggested commands.
+- [ ] Trace path authorization for patch add/update/delete/move actions and identify all canonicalization boundaries.
+- [ ] Inspect tests for symlinks, traversal, paths outside the repo, malformed patches, and failures after partial writes.
+- [ ] For AURIX, add or confirm tests for REA path symlinks, timeout behavior, oversized stdout/stderr, invalid JSON, nonzero exit status, and provider command allowlisting.
+- [ ] Do not import code from Aider solely on architectural resemblance; extract behavioral requirements and reproduce them with AURIX-specific tests first.
