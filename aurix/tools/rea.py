@@ -186,7 +186,7 @@ def analyze_javascript_application(
     try:
         parsed = json.loads(stdout)
     except json.JSONDecodeError:
-        result["status"] = "invalid_output" if completed.returncode == 0 else result["status"]
+        result["status"] = "invalid_output" if completed["returncode"] == 0 else result["status"]
         result["output"] = stdout
         result["output_format"] = "text"
     else:
@@ -294,6 +294,6 @@ def investigate_with_rea(
     except json.JSONDecodeError:
         result["output"] = stdout[-MAX_STDOUT_CHARS:]
         result["output_format"] = "text"
-        if completed.returncode == 0:
+        if completed["returncode"] == 0:
             result["status"] = "invalid_output"
     return result
