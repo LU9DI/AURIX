@@ -74,7 +74,18 @@ class _StdioMCP:
                     not has_newline and len(line) >= MAX_MCP_MESSAGE_CHARS + 2
                 ):
                     self._enqueue_terminal(_OVERSIZED_MESSAGE)
-                    self.process.terminate()
+                    try:
+                        self.process.terminate()
+                    except OSError:
+                        pass
+                    return
+                if not has_newline:
+                    # EOF in the middle of a JSON-RPC frame is a protocol error.
+                    self._enqueue_terminal(_OVERSIZED_MESSAGE)
+                    try:
+                        self.process.terminate()
+                    except OSError:
+                        pass
                     return
                 self._messages.put(payload)
         except (OSError, ValueError):
