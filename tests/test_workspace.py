@@ -110,3 +110,22 @@ def test_workspace_tools_skip_common_credential_locations_and_files(tmp_path):
         read_text(tmp_path, ".aws/credentials")
     with pytest.raises(PermissionError):
         read_text(tmp_path, ".npmrc")
+
+ 
+def test_workspace_tools_skip_kubernetes_and_terraform_secrets(tmp_path):
+    from aurix.tools.workspace import build_workspace_context, read_text, search_text
+
+    (tmp_path / ".kube").mkdir()
+    (tmp_path / ".kube" / "config").write_text("KUBE_TOKEN_SENTINEL", encoding="utf-8")
+    (tmp_path / ".terraform").mkdir()
+    (tmp_path / ".terraform" / "terraform.tfstate").write_text(
+        "TERRAFORM_SECRET_SENTINEL", encoding="utf-8"
+    )
+    context = build_workspace_context(tmp_path)
+    assert "KUBE_TOKEN_SENTINEL" not in context
+    assert "TERRAFORM_SECRET_SENTINEL" not in context
+    assert search_text(tmp_path, "SENTINEL") == []
+    with pytest.raises(PermissionError):
+        read_text(tmp_path, ".kube/config")
+    with pytest.raises(PermissionError):
+        read_text(tmp_path, ".terraform/terraform.tfstate")
