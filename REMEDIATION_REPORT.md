@@ -17,6 +17,8 @@ Branch: `main`
 - Enforce ignored-directory policy on direct reads and line-range reads as well as recursive search/context building, preventing direct access to `.git/` metadata and `.venv/` contents through the workspace reader.
 - Align execution-runner documentation and security notes with the actual read-only Docker workspace mount.
 - Add a documented REA-assisted research workstream with a public-source target catalogue, evidence schema, license review, reproducibility requirements, and isolation boundaries.
+- Inspect the upstream REA repository at pinned revision `1c37914306b3ff257d7a0360f11c9bf2a3f2cac7` (package `rea-agents` 6.4.0, MIT) and document the division of labor: use pinned source/tests for ordinary open-source harness audits, and REA for shipped artifacts or runtime evidence.
+- Record a preliminary, source-only Aider harness review at pinned revision `5dc9490bb35f9729ef2c95d00a19ccd30c26339c` (Apache-2.0), including repository-map caching, edit lifecycle, lint feedback, and shell execution boundaries. No Aider code or commands were executed.
 - Normalize legacy formatting and configure CI to enforce syntax, unused-name/import, and core error checks while excluding the repository's existing long-line style debt.
 - Update the root README and recovery report.
 
@@ -24,6 +26,7 @@ Branch: `main`
 
 - Pull request #4 was merged into `main`; merge commit: `75699ddd3a3146016c5923f43b9c1560ed99ed49`.
 - Latest root CI run after the direct-read hardening: [38301763383](https://github.com/LU9DI/AURIX/actions/runs/38301763383) — **success**.
+- Research documentation and the preliminary Aider review also passed CI on [38302370787](https://github.com/LU9DI/AURIX/actions/runs/38302370787): compile and Ruff passed; **302 tests passed in 14.88 seconds**.
 - `python -m compileall -q aurix tests`: passed.
 - Correctness-focused Ruff gate: passed. The gate checks `E` and `F` rules and excludes `E501` long-line debt; it is not a full style-cleanliness claim.
 - `pytest`: **302 passed in 9.98 seconds** on run [38301763383](https://github.com/LU9DI/AURIX/actions/runs/38301763383); compile and correctness-focused Ruff checks passed in the same run.
