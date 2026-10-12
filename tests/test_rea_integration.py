@@ -20,12 +20,18 @@ def test_rea_runs_only_static_analysis_without_shell(monkeypatch, tmp_path):
     monkeypatch.setattr(rea, "_rea_executable", lambda: "/usr/local/bin/rea")
     monkeypatch.setattr(rea, "_child_environment", lambda: {"PATH": "/usr/bin"})
 
-    def fake_run(argv, **kwargs):
+    def fake_bounded(argv, **kwargs):
         captured["argv"] = argv
         captured.update(kwargs)
-        return Completed()
+        return {
+            "returncode": 0,
+            "stdout": Completed.stdout,
+            "stderr": "",
+            "timed_out": False,
+            "output_limit_exceeded": False,
+        }
 
-    monkeypatch.setattr(rea.subprocess, "run", fake_run)
+    monkeypatch.setattr(rea, "_run_bounded", fake_bounded)
     result = rea.analyze_javascript_application(tmp_path, "desktop-app")
 
     assert result["status"] == "completed"
@@ -36,7 +42,6 @@ def test_rea_runs_only_static_analysis_without_shell(monkeypatch, tmp_path):
         str(app),
         "--json",
     ]
-    assert captured["shell"] is False
     assert captured["timeout"] == 90
     assert captured["env"] == {"PATH": "/usr/bin"}
     assert result["application_executed"] is False
@@ -63,11 +68,17 @@ def test_rea_caps_timeout_and_reports_timeout(monkeypatch, tmp_path):
     monkeypatch.setattr(rea, "_child_environment", dict)
     captured = {}
 
-    def fake_run(argv, **kwargs):
+    def fake_bounded(argv, **kwargs):
         captured.update(kwargs)
-        raise subprocess.TimeoutExpired(argv, kwargs["timeout"], output="partial")
+        return {
+            "returncode": -15,
+            "stdout": "partial",
+            "stderr": "",
+            "timed_out": True,
+            "output_limit_exceeded": False,
+        }
 
-    monkeypatch.setattr(rea.subprocess, "run", fake_run)
+    monkeypatch.setattr(rea, "_run_bounded", fake_bounded)
     result = rea.analyze_javascript_application(tmp_path, "app.asar", timeout_seconds=999)
     assert captured["timeout"] == 120
     assert result["status"] == "timeout"
@@ -129,12 +140,18 @@ def test_rea_investigate_uses_allowlisted_command_and_returns_evidence(monkeypat
     monkeypatch.setattr(rea, "_rea_executable", lambda: "/usr/bin/rea")
     monkeypatch.setattr(rea, "_child_environment", lambda: {"PATH": "/usr/bin"})
 
-    def fake_run(argv, **kwargs):
+    def fake_bounded(argv, **kwargs):
         captured["argv"] = argv
         captured.update(kwargs)
-        return Completed()
+        return {
+            "returncode": 0,
+            "stdout": Completed.stdout,
+            "stderr": "",
+            "timed_out": False,
+            "output_limit_exceeded": False,
+        }
 
-    monkeypatch.setattr(rea.subprocess, "run", fake_run)
+    monkeypatch.setattr(rea, "_run_bounded", fake_bounded)
     result = rea.investigate_with_rea(
         tmp_path, "search", path="sample.bin", query="auth", provider="ghidra"
     )
@@ -149,7 +166,6 @@ def test_rea_investigate_uses_allowlisted_command_and_returns_evidence(monkeypat
         "ghidra",
         "--json",
     ]
-    assert captured["shell"] is False
     assert captured["timeout"] == 90
     assert result["target_executed"] is False
 
@@ -204,3 +220,46 @@ def test_orchestrator_can_call_rea_investigate(monkeypatch, tmp_path):
     assert result.status == "completed"
     assert result.trace[0]["tool"] == "rea_investigate"
     assert '"main"' in provider.prompts[1]
+
+
+
+def test_rea_bounded_runner_terminates_on_output_budget(monkeypatch, tmp_path):
+    class FakeStream:
+        def __init__(self, chunks):
+            self.chunks = iter(chunks)
+
+        def read(self, size):
+            return next(self.chunks, b"")
+
+        def close(self):
+            pass
+
+    class FakeProcess:
+        def __init__(self, *args, **kwargs):
+            self.stdout = FakeStream([b"x" * 4096, b""])
+            self.stderr = FakeStream([b""])
+            self.returncode = None
+            self.terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            if self.returncode is None:
+                self.returncode = 0
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    process = FakeProcess()
+    monkeypatch.setattr(rea.subprocess, "Popen", lambda *a, **k: process)
+    monkeypatch.setattr(rea, "MAX_STDOUT_CHARS", 100)
+    monkeypatch.setattr(rea, "MAX_STDERR_CHARS", 10)
+    result = rea._run_bounded(["rea"], cwd=tmp_path, env={}, timeout=1)
+    assert len(result["stdout"]) <= 400
+    assert result["output_limit_exceeded"] is True
