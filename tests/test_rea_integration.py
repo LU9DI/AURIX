@@ -308,3 +308,77 @@ def test_rea_investigation_reports_invalid_json_without_attribute_error(monkeypa
     assert result["status"] == "invalid_output"
     assert result["output_format"] == "text"
     assert result["output"] == "not-json"
+
+
+def test_rea_cli_reports_nonzero_exit_for_static_analysis(monkeypatch, tmp_path):
+    (tmp_path / "app.asar").write_bytes(b"fixture")
+    monkeypatch.setattr(rea, "_rea_executable", lambda: "rea")
+    monkeypatch.setattr(rea, "_child_environment", dict)
+    monkeypatch.setattr(
+        rea,
+        "_run_bounded",
+        lambda *args, **kwargs: {
+            "returncode": 7,
+            "stdout": '{"partial":true}',
+            "stderr": "provider failed",
+            "timed_out": False,
+            "output_limit_exceeded": False,
+        },
+    )
+
+    result = rea.analyze_javascript_application(tmp_path, "app.asar")
+
+    assert result["status"] == "failed"
+    assert result["returncode"] == 7
+    assert result["evidence"] == {"partial": True}
+    assert result["stderr"] == "provider failed"
+
+
+def test_rea_cli_reports_nonzero_exit_for_native_investigation(monkeypatch, tmp_path):
+    (tmp_path / "sample.bin").write_bytes(b"fixture")
+    monkeypatch.setattr(rea, "_rea_executable", lambda: "rea")
+    monkeypatch.setattr(rea, "_child_environment", dict)
+    monkeypatch.setattr(
+        rea,
+        "_run_bounded",
+        lambda *args, **kwargs: {
+            "returncode": 9,
+            "stdout": '{"partial":true}',
+            "stderr": "analysis failed",
+            "timed_out": False,
+            "output_limit_exceeded": False,
+        },
+    )
+
+    result = rea.investigate_with_rea(tmp_path, "analyze", path="sample.bin")
+
+    assert result["status"] == "failed"
+    assert result["returncode"] == 9
+    assert result["evidence"] == {"partial": True}
+    assert result["stderr"] == "analysis failed"
+
+
+def test_rea_cli_process_group_uses_posix_signals(monkeypatch):
+    import os
+    import signal
+
+    if os.name != "posix":
+        pytest.skip("POSIX process groups are not available")
+
+    calls = []
+
+    class Process:
+        pid = 43211
+
+        def terminate(self):
+            raise AssertionError("process-group signaling should be used")
+
+        def kill(self):
+            raise AssertionError("process-group signaling should be used")
+
+    monkeypatch.setattr(rea.os, "killpg", lambda pid, sig: calls.append((pid, sig)))
+
+    rea._signal_process_group(Process())
+    rea._signal_process_group(Process(), force=True)
+
+    assert calls == [(43211, signal.SIGTERM), (43211, signal.SIGKILL)]
