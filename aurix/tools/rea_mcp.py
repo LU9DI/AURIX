@@ -150,10 +150,9 @@ class _StdioMCP:
                 raise ValueError("REA MCP response exceeded the message-size limit")
             try:
                 response = json.loads(line)
-            except json.JSONDecodeError:
-                # Ignore non-JSON stdout lines only during startup diagnostics, but
-                # do not silently accept arbitrary output as a protocol response.
-                continue
+            except json.JSONDecodeError as exc:
+                # MCP stdout is protocol-only; diagnostics belong on stderr.
+                raise ValueError("REA MCP emitted malformed JSON-RPC on stdout") from exc
             if not isinstance(response, dict) or response.get("id") != request_id:
                 continue
             if "error" in response:
