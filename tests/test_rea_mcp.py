@@ -509,9 +509,9 @@ def test_mcp_real_stalled_server_times_out_and_is_reaped(monkeypatch, tmp_path):
     target.write_bytes(b"fixture")
     server = tmp_path / "stalled-rea-mcp"
     server.write_text(
-        "#!/usr/bin/env python3\\n"
-        "import time\\n"
-        "while True: time.sleep(0.1)\\n",
+        "#!/usr/bin/env python3\n"
+        "import time\n"
+        "while True: time.sleep(0.1)\n",
         encoding="utf-8",
     )
     server.chmod(0o755)
