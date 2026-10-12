@@ -60,9 +60,9 @@ Current tests now exercise representative happy paths, CLI timeout and output-bu
 
 **Evidence:** a new regression test that fed multiple stderr chunks larger than the configured cap showed that the previous trimming loop removed each entire chunk, potentially leaving an empty diagnostic tail instead of retaining the last configured number of characters.
 
-**Remediation:** commit [`b484a2c`](https://github.com/LU9DI/AURIX/commit/b484a2c87488d99760e25ebae0e05a7d61361391) trims only the excess prefix from the oldest retained chunk and keeps the final bounded tail. The preceding test commit exposed the defect (315 passed, 1 failed): [CI run 38316369529](https://github.com/LU9DI/AURIX/actions/runs/38316369529). The corrective commit's CI run is [38316401791](https://github.com/LU9DI/AURIX/actions/runs/38316401791) and was still running at this report update.
+**Remediation:** commit [`b484a2c`](https://github.com/LU9DI/AURIX/commit/b484a2c87488d99760e25ebae0e05a7d61361391) trims only the excess prefix from the oldest retained chunk and keeps the final bounded tail. The preceding test commit exposed the defect (315 passed, 1 failed): [CI run 38316369529](https://github.com/LU9DI/AURIX/actions/runs/38316369529). The corrective commit's CI run [38316401791](https://github.com/LU9DI/AURIX/actions/runs/38316401791) passed with 316 tests in 10.22 seconds.
 
-**Status:** implementation corrected; do not mark the new regression green until the corrective CI run completes.
+**Status:** fixed and regression-tested; the preceding failure was useful evidence that the test catches the defect.
 
 ### R-03 — Static-analysis “read-only” is not an OS sandbox
 
