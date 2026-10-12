@@ -31,6 +31,18 @@ class OpenAICompatibleProvider:
         self.base_url = (
             base_url or os.getenv("AURIX_BASE_URL", "http://localhost:1234/v1")
         ).rstrip("/")
+        parsed = urlparse(self.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("AURIX_BASE_URL must be an absolute HTTP(S) URL without credentials")
+        host = parsed.hostname.rstrip(".").lower()
+        is_loopback = host in {"localhost", "localhost.localdomain"} or host.endswith(".localhost")
+        if not is_loopback:
+            try:
+                is_loopback = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                is_loopback = False
+        if parsed.scheme == "http" and not is_loopback:
+            raise ValueError("Remote OpenAI-compatible endpoints must use HTTPS; HTTP is allowed only for loopback")
         self.api_key = api_key if api_key is not None else os.getenv("AURIX_API_KEY", "")
         self.timeout = max(1.0, float(timeout))
 
