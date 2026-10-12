@@ -7,6 +7,10 @@ CLI -> bounded orchestrator -> provider protocol -> local/compatible inference
                           -> structured trace events (planned)
 ```
 
+## REA-assisted open-source research
+
+The research workflow and its limits are documented in [`reverse-engineering/`](reverse-engineering/README.md). Each investigation must pin an upstream revision, record source-level evidence and license status, separate facts from inference, and use isolated experiments for runtime claims. The REA adapter is a bounded analysis interface, not a sandbox.
+
 ## Efficiency hypothesis
 
 Token count is only one metric. Evaluate task success, regression rate, model calls, tokens where available, wall-clock latency, peak memory, tool failures, and human interventions. Candidate optimizations include context pruning, repository maps, content hashing, exact-result caching, compact task state, and smaller-model routing. Multi-agent calls should be included only when ablations show net value.
