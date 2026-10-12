@@ -247,7 +247,7 @@ def test_mcp_stdout_preserves_oversized_error_when_queue_is_full(monkeypatch):
 
 
 def test_mcp_stdout_rejects_truncated_frame_at_eof(monkeypatch):
-    monkeypatch.setattr(rea_mcp, "MAX_MCP_MESSAGE_CHARS", 16)
+    monkeypatch.setattr(rea_mcp, "MAX_MCP_MESSAGE_CHARS", 64)
 
     class Stream:
         def __init__(self):
