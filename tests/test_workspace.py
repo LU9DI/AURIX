@@ -83,3 +83,30 @@ def test_read_text_lines_rejects_invalid_ranges_and_large_requests(tmp_path):
         read_text_lines(tmp_path, "module.py", start_line=0)
     with pytest.raises(ValueError, match="500 lines"):
         read_text_lines(tmp_path, "module.py", start_line=1, end_line=501)
+
+ 
+def test_workspace_tools_skip_common_credential_locations_and_files(tmp_path):
+    from aurix.tools.workspace import build_workspace_context, list_files, read_text, search_text
+
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "id_ecdsa").write_text("PRIVATE_KEY_SENTINEL", encoding="utf-8")
+    (tmp_path / ".aws").mkdir()
+    (tmp_path / ".aws" / "credentials").write_text("AWS_SECRET_SENTINEL", encoding="utf-8")
+    (tmp_path / ".docker").mkdir()
+    (tmp_path / ".docker" / "config.json").write_text("DOCKER_AUTH_SENTINEL", encoding="utf-8")
+    (tmp_path / ".npmrc").write_text("//registry.example/:_authToken=NPM_SECRET_SENTINEL", encoding="utf-8")
+    (tmp_path / "main.py").write_text("print('safe')", encoding="utf-8")
+
+    context = build_workspace_context(tmp_path)
+    listed = list_files(tmp_path)
+    searched = search_text(tmp_path, "SENTINEL")
+
+    for secret in ("PRIVATE_KEY_SENTINEL", "AWS_SECRET_SENTINEL", "DOCKER_AUTH_SENTINEL", "NPM_SECRET_SENTINEL"):
+        assert secret not in context
+    assert not any(path.startswith((".ssh/", ".aws/", ".docker/")) for path in listed)
+    assert ".npmrc" not in listed
+    assert searched == []
+    with pytest.raises(PermissionError):
+        read_text(tmp_path, ".aws/credentials")
+    with pytest.raises(PermissionError):
+        read_text(tmp_path, ".npmrc")
