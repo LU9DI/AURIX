@@ -10,16 +10,29 @@ IGNORED_DIRS = {
     "build",
     ".mypy_cache",
     ".ruff_cache",
+    ".ssh",
+    ".aws",
+    ".azure",
+    ".gnupg",
+    ".docker",
 }
 SENSITIVE_NAMES = {
     ".env",
-    ".env.local",
-    ".env.production",
+    ".envrc",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git-credentials",
+    ".gitconfig",
     "id_rsa",
     "id_ed25519",
+    "credentials",
     "credentials.json",
     "secrets.json",
+    "token",
+    "token.json",
 }
+SENSITIVE_DIRS = {".ssh", ".aws", ".azure", ".gnupg", ".docker"}
 TEXT_SUFFIXES = {
     ".py",
     ".md",
@@ -83,10 +96,12 @@ def _is_ignored(relative: Path) -> bool:
 
 def _is_sensitive(path: Path) -> bool:
     name = path.name.lower()
+    parent_parts = {part.lower() for part in path.parts[:-1]}
     return (
         name in SENSITIVE_NAMES
-        or name.startswith(".env.")
-        or name.endswith((".pem", ".key", ".p12", ".pfx"))
+        or (name.startswith((".env.", "id_")) and not name.endswith(".pub"))
+        or name.endswith((".pem", ".key", ".p12", ".pfx", ".kdbx", ".secret", ".token"))
+        or bool(parent_parts & SENSITIVE_DIRS)
     )
 
 
