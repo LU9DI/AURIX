@@ -85,6 +85,23 @@ class ResponseCache:
                     digest.update(
                         f"{rel.as_posix()}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode()
                     )
+                    if (
+                        stat.st_size <= max_file_hash_bytes
+                        and hashed_bytes + stat.st_size <= max_total_hash_bytes
+                    ):
+                        with path.open("rb") as stream:
+                            content = stream.read(max_file_hash_bytes + 1)
+                        if (
+                            len(content) <= max_file_hash_bytes
+                            and len(content) == stat.st_size
+                            and hashed_bytes + len(content) <= max_total_hash_bytes
+                        ):
+                            digest.update(hashlib.sha256(content).digest())
+                            hashed_bytes += len(content)
+                        else:
+                            digest.update(b"CONTENT_HASH_SKIPPED")
+                    else:
+                        digest.update(b"CONTENT_HASH_SKIPPED")
                     count += 1
                     if count >= 20_000:
                         digest.update(b"TRUNCATED")
