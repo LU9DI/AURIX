@@ -57,6 +57,19 @@ class _StdioMCP:
             except queue.Full:
                 pass
 
+    def _enqueue_frame(self, payload: str) -> bool:
+        """Queue one frame without allowing a stalled consumer to block the reader."""
+        try:
+            self._messages.put(payload, timeout=0.1)
+            return True
+        except queue.Full:
+            self._enqueue_terminal(_OVERSIZED_MESSAGE)
+            try:
+                self.process.terminate()
+            except OSError:
+                pass
+            return False
+
     def _read_stdout(self) -> None:
         """Read bounded newline-delimited frames, rejecting oversized lines early."""
         assert self.process.stdout is not None
@@ -87,7 +100,8 @@ class _StdioMCP:
                     except OSError:
                         pass
                     return
-                self._messages.put(payload)
+                if not self._enqueue_frame(payload):
+                    return
         except (OSError, ValueError):
             pass
         finally:
