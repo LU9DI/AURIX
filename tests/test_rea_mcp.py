@@ -200,7 +200,7 @@ def test_mcp_stdout_accepts_frame_at_exact_payload_limit(monkeypatch):
 
     class Stream:
         def __init__(self):
-            self.items = iter(["1234\\n", ""])
+            self.items = iter(["1234\n", ""])
 
         def readline(self, size):
             return next(self.items)
@@ -225,7 +225,7 @@ def test_mcp_stdout_preserves_oversized_error_when_queue_is_full(monkeypatch):
 
     class Stream:
         def readline(self, size):
-            return "12345\\n"
+            return "12345\n"
 
     class Process:
         stdout = Stream()
