@@ -444,3 +444,56 @@ def test_posix_process_group_signal_reaches_real_descendant(signal_tree, tmp_pat
         if process.poll() is None:
             process.kill()
             process.wait(timeout=2)
+
+
+
+def test_rea_real_stdout_and_stderr_flood_is_bounded_and_reaped(monkeypatch, tmp_path):
+    import subprocess
+    import sys
+
+    monkeypatch.setattr(rea, "MAX_STDOUT_CHARS", 128)
+    monkeypatch.setattr(rea, "MAX_STDERR_CHARS", 64)
+    real_popen = subprocess.Popen
+    launched = []
+
+    def capture_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        launched.append(process)
+        return process
+
+    monkeypatch.setattr(rea.subprocess, "Popen", capture_popen)
+    script = "import os\nwhile True:\n os.write(1, b'O' * 4096)\n os.write(2, b'E' * 4096)\n"
+    result = rea._run_bounded(
+        [sys.executable, "-c", script], cwd=tmp_path, env={}, timeout=5
+    )
+
+    assert result["output_limit_exceeded"] is True
+    assert result["timed_out"] is False
+    assert len(result["stdout"].encode("utf-8")) <= 128 * 4
+    assert len(result["stderr"].encode("utf-8")) <= 64 * 4
+    assert launched and launched[0].poll() is not None
+
+
+def test_rea_real_silent_process_times_out_and_is_reaped(monkeypatch, tmp_path):
+    import subprocess
+    import sys
+
+    real_popen = subprocess.Popen
+    launched = []
+
+    def capture_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        launched.append(process)
+        return process
+
+    monkeypatch.setattr(rea.subprocess, "Popen", capture_popen)
+    result = rea._run_bounded(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        cwd=tmp_path,
+        env={},
+        timeout=1,
+    )
+
+    assert result["timed_out"] is True
+    assert result["output_limit_exceeded"] is False
+    assert launched and launched[0].poll() is not None
