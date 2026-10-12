@@ -40,7 +40,7 @@ SENSITIVE_NAMES = {
     "service-account.json",
     "application_default_credentials.json",
 }
-SENSITIVE_DIRS = {".ssh", ".aws", ".azure", ".gnupg", ".docker"}
+SENSITIVE_DIRS = {".ssh", ".aws", ".azure", ".gnupg", ".docker", ".kube", ".terraform", ".pulumi"}
 TEXT_SUFFIXES = {
     ".py",
     ".md",
