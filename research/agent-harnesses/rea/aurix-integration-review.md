@@ -54,7 +54,7 @@ Current tests now exercise representative happy paths, a CLI timeout, output-bud
 
 **Remediation:** fixed both branches in commit [`7bd5126`](https://github.com/LU9DI/AURIX/commit/7bd51262f4813f2f9a42fd7144bb34500efc99f2) and added regression tests for both static JavaScript analysis and native investigation in [`8b40976`](https://github.com/LU9DI/AURIX/commit/8b40976be6f305171e818bed855da9ca9722b84d). CI runs for those commits passed: [fix](https://github.com/LU9DI/AURIX/actions/runs/38315732945) and [tests](https://github.com/LU9DI/AURIX/actions/runs/38315748052).
 
-**Status:** fixed for the covered branches. Additional malformed/truncated MCP frame tests are being verified in a newer CI run.
+**Status:** fixed for the covered branches. The subsequent MCP frame-boundary and truncated-EOF regression suite passed in [CI run 38315797924](https://github.com/LU9DI/AURIX/actions/runs/38315797924), with 309 tests passing in 12.24 seconds. The preceding run also passed with 309 tests in [CI run 38315787568](https://github.com/LU9DI/AURIX/actions/runs/38315787568).
 
 ### R-03 — Static-analysis “read-only” is not an OS sandbox
 
