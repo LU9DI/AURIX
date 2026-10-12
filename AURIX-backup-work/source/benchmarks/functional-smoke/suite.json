@@ -1,0 +1,10 @@
+[
+  {
+    "id": "fix-add-subtraction-bug",
+    "fixture": "fixture",
+    "patch": "patches/fix-add.patch",
+    "suite": "pytest",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  }
+]
