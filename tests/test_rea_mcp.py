@@ -535,3 +535,31 @@ def test_mcp_real_stalled_server_times_out_and_is_reaped(monkeypatch, tmp_path):
     assert result["status"] == "timeout"
     assert result["target_executed"] is False
     assert launched and launched[0].poll() is not None
+
+
+
+def test_mcp_real_stderr_flood_retains_only_bounded_tail():
+    import subprocess
+    import sys
+
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stderr.write('x' * 50000 + 'TAIL_SENTINEL'); sys.stderr.flush()",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=(__import__("os").name == "posix"),
+    )
+    client = rea_mcp._StdioMCP(process, timeout=3)
+    try:
+        process.wait(timeout=3)
+        client._stderr_reader.join(timeout=3)
+        assert not client._stderr_reader.is_alive()
+        assert len(client.stderr) <= rea_mcp.MAX_MCP_STDERR_CHARS
+        assert client.stderr.endswith("TAIL_SENTINEL")
+    finally:
+        client.close()
