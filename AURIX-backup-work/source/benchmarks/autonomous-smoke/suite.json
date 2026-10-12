@@ -1,9 +1,0 @@
-[
-  {
-    "id": "autonomous-fix-add-subtraction-bug",
-    "fixture": "fixture",
-    "task": "The add(a, b) function in calculator.py incorrectly subtracts. Diagnose the defect, inspect the test, and propose a minimal patch that makes add(2, 3) return 5. Use propose_patch to save the unified diff.",
-    "expect_baseline_passed": false,
-    "expect_candidate_passed": true
-  }
-]
