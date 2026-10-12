@@ -25,7 +25,7 @@
 
 ### R-01 — Output truncation is not a process-memory bound — mitigation implemented; residual verification remains
 
-**Evidence (updated 2026-10-12):** `rea.py` now drains stdout and stderr on dedicated threads into bounded byte buffers and starts the child in a dedicated POSIX session, signaling its process group on output-budget breach, timeout, and forced cleanup. Non-POSIX platforms fall back to direct-child termination. `rea_mcp.py` now uses a bounded message queue and bounded `readline` calls, rejects oversized/truncated frames before JSON parsing, fails fast on malformed JSON-RPC, and stops reading if queue backpressure persists. On POSIX, the MCP process is launched in a dedicated session and protocol failure/shutdown signals its process group; non-POSIX platforms fall back to direct-child termination. Regression tests cover CLI output-budget termination and MCP over-limit frames.
+**Evidence (updated 2026-10-12):** `rea.py` now drains stdout and stderr on dedicated threads into bounded byte buffers and starts the child in a dedicated POSIX session, signaling its process group on output-budget breach, timeout, and forced cleanup. Non-POSIX platforms fall back to direct-child termination. `rea_mcp.py` now uses a bounded message queue and bounded `readline` calls, rejects oversized/truncated frames before JSON parsing, fails fast on malformed JSON-RPC, and stops reading if queue backpressure persists. On POSIX, the MCP process is launched in a dedicated session and protocol failure/shutdown signals its process group; non-POSIX platforms fall back to direct-child termination. Regression tests cover CLI output-budget termination and MCP over-limit frames. A POSIX integration test now launches a real parent process and descendant, then verifies that SIGTERM reaches the descendant for both the CLI and MCP process-group helpers.
 
 **Impact:** the original unbounded-buffering design gap is mitigated for retained CLI output and MCP frame/queue sizes. This still does not establish a strict whole-process-tree memory bound: POSIX process-group cleanup has deterministic unit coverage but has not yet been tested against a real descendant tree; non-POSIX cleanup falls back to the direct child. Output budgets constrain retained output and trigger termination, but cannot guarantee the OS never briefly buffers data in pipes. The implementation uses character limits for MCP framing and a byte budget for CLI output. No hostile executable was run.
 
@@ -35,12 +35,11 @@
 
 ### R-02 — The tests don't yet prove all failure/result contracts
 
-Current tests now exercise representative happy paths, CLI timeout and output-budget termination, invalid JSON and nonzero exit results for both CLI entry points, MCP oversized/truncated frames, queue backpressure, POSIX process-group signaling, and bounded stderr retention. The inspected tests do not comprehensively assert:
+Current tests exercise representative happy paths, CLI timeout and output-budget termination, invalid JSON and nonzero exit results for both CLI entry points, MCP oversized/truncated frames, queue backpressure, bounded stderr retention, independent `open_binary`/`binary_overview` error results, stalled initialization, invalid provider rejection, and real POSIX descendant signaling for both adapters. The inspected tests do not comprehensively assert:
 - nonzero exit status and stderr truncation for both CLI methods;
 - malformed JSON with exit status zero and nonzero;
 - oversized stdout/stderr behavior;
-- CLI timeout output type/size when `TimeoutExpired.stdout` or `.stderr` are bytes;
-- MCP overlong/truncated protocol lines, malformed JSON-RPC, queue backpressure, process-group cleanup, repeated unsolicited lines, stalled initialization, process termination after timeout, and stderr flooding;
+- MCP repeated unsolicited lines, process termination after timeout under a real stalled server, and stderr flooding;
 - invalid or unavailable REA provider identifiers at the MCP boundary;
 - failure of `open_binary` versus failure of `binary_overview` independently.
 
@@ -56,7 +55,7 @@ Current tests now exercise representative happy paths, CLI timeout and output-bu
 
 **Status:** fixed for the covered branches. The subsequent MCP frame-boundary and truncated-EOF regression suite passed in [CI run 38315797924](https://github.com/LU9DI/AURIX/actions/runs/38315797924), with 309 tests passing in 12.24 seconds. The preceding run also passed with 309 tests in [CI run 38315787568](https://github.com/LU9DI/AURIX/actions/runs/38315787568).
 
-### R-05 — MCP stderr tail could be discarded entirely — fixed; CI verification pending
+### R-05 — MCP stderr tail could be discarded entirely — fixed and CI-verified
 
 **Evidence:** a new regression test that fed multiple stderr chunks larger than the configured cap showed that the previous trimming loop removed each entire chunk, potentially leaving an empty diagnostic tail instead of retaining the last configured number of characters.
 
@@ -71,6 +70,8 @@ The adapters do not launch the analyzed target application, which is a meaningfu
 **Recommended remediation:** document the trust boundary accurately. For untrusted binaries or provider plugins, run REA in an external sandbox/container with explicit filesystem, network, CPU, memory, and process limits. Keep the workspace mounted read-only unless writes are an explicit requirement.
 
 **Priority:** deployment-dependent; treat as an architecture boundary, not a code-level guarantee.
+
+**Latest integration-test verification (2026-10-12):** commit [`d85fec6`](https://github.com/LU9DI/AURIX/commit/d85fec63b557936ead4b998cc7eb925b546373c5) passed [CI run 38320217706](https://github.com/LU9DI/AURIX/actions/runs/38320217706): compile, Ruff, and 322 tests passed in 7.82 seconds. The new real-descendant test initially exposed a malformed subprocess fixture caused by double-escaped newlines; that test-fixture defect was corrected before this passing run. This verifies POSIX signal propagation in the test environment only; it does not establish equivalent behavior on Windows or a complete sandbox boundary.
 
 ## Suggested verification matrix
 
