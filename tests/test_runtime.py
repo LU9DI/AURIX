@@ -55,3 +55,20 @@ def test_cache_never_returns_tool_calls_as_cached_entries():
     cache = ResponseCache(max_entries=2, ttl_seconds=60)
     cache.put("key", json.dumps({"status": "final", "message": "terminal"}))
     assert json.loads(cache.get("key"))["status"] == "final"
+
+
+def test_cache_fingerprint_detects_same_size_content_change_with_preserved_mtime(tmp_path):
+    import os
+
+    target = tmp_path / "same.py"
+    target.write_text("value = 1\\n", encoding="utf-8")
+    fixed_ns = 1_700_000_000_000_000_000
+    os.utime(target, ns=(fixed_ns, fixed_ns))
+    before = ResponseCache.workspace_fingerprint(tmp_path)
+
+    target.write_text("value = 2\\n", encoding="utf-8")
+    os.utime(target, ns=(fixed_ns, fixed_ns))
+    after = ResponseCache.workspace_fingerprint(tmp_path)
+
+    assert target.stat().st_size == len("value = 1\\n")
+    assert before != after
