@@ -11,6 +11,12 @@ This workstream studies **publicly available source code and documented behavior
 
 Out of scope: credential theft, access-control bypass, private repositories without authorization, evading rate limits, and executing untrusted target code on the host.
 
+## Upstream REA repository and correct division of labor
+
+- Upstream REA is [morluto/rea](https://github.com/morluto/rea), an MIT-licensed TypeScript/Node.js CLI and MCP server. The inspected upstream `main` revision on 2026-10-12 was `1c37914306b3ff257d7a0360f11c9bf2a3f2cac7` (package `rea-agents` version `6.4.0`; Node.js `22.19+/24.11+/26+` per its `package.json`). These are observations of the upstream repository, not a claim that this runtime has REA installed or connected.
+- REA's own `reverse-engineer-anything` skill explicitly says to skip REA for ordinary architecture analysis of a complete source repository. For open-source harnesses, use pinned Git source, tests and CI first; use REA when the question concerns a shipped binary, packaged application, Electron/ASAR artifact, or runtime evidence that source inspection cannot establish.
+- The AURIX adapter `aurix.tools.rea` is not a full wrapper for every upstream MCP tool. It invokes the CLI and is neither an execution sandbox nor proof of runtime isolation.
+
 ## Current AURIX capabilities and limits
 
 - Use AURIX's repository tools for source maps, bounded reads, literal search, and Git inspection.
