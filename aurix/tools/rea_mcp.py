@@ -38,27 +38,21 @@ class _StdioMCP:
         self._stderr_reader.start()
 
     def _read_stdout(self) -> None:
-        """Parse newline-delimited frames without ever buffering an unbounded line."""
+        """Read bounded newline-delimited frames, rejecting oversized lines early."""
         assert self.process.stdout is not None
-        pending = ""
         try:
             while True:
-                chunk = self.process.stdout.read(4096)
-                if not chunk:
+                line = self.process.stdout.readline(MAX_MCP_MESSAGE_CHARS + 2)
+                if not line:
                     break
-                pending += chunk
-                while "\n" in pending:
-                    line, pending = pending.split("\n", 1)
-                    line = line.rstrip("\r")
-                    if len(line) > MAX_MCP_MESSAGE_CHARS:
-                        self._messages.put(_OVERSIZED_MESSAGE)
-                        self.process.terminate()
-                        return
-                    self._messages.put(line)
-                if len(pending) > MAX_MCP_MESSAGE_CHARS:
+                payload = line.rstrip("\\r\\n")
+                if len(payload) > MAX_MCP_MESSAGE_CHARS or (
+                    not line.endswith("\\n") and len(line) > MAX_MCP_MESSAGE_CHARS
+                ):
                     self._messages.put(_OVERSIZED_MESSAGE)
                     self.process.terminate()
                     return
+                self._messages.put(payload)
         except (OSError, ValueError):
             pass
         finally:
