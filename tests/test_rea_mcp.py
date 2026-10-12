@@ -279,7 +279,7 @@ def test_mcp_stdout_does_not_block_when_message_queue_is_full(monkeypatch):
 
     class Stream:
         def __init__(self):
-            self.items = iter(['{"jsonrpc":"2.0","id":1}\\n', ""])
+            self.items = iter(['{"jsonrpc":"2.0","id":1}\n', ""])
 
         def readline(self, size):
             return next(self.items)
