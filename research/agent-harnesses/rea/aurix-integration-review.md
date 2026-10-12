@@ -35,7 +35,7 @@
 
 ### R-02 — The tests don't yet prove all failure/result contracts
 
-Current tests exercise representative happy paths, CLI timeout and output-budget termination, real CLI stdout/stderr flooding with buffer-cap assertions and child reaping, real silent-process timeout/reaping, invalid JSON and nonzero exit results for both CLI entry points, MCP oversized/truncated frames, queue backpressure, bounded stderr retention, independent `open_binary`/`binary_overview` error results, stalled initialization, invalid provider rejection, a real stalled MCP server timeout/reap check, and real POSIX descendant signaling for both adapters. The inspected tests do not comprehensively assert:
+Current tests exercise representative happy paths, CLI timeout and output-budget termination, real CLI stdout/stderr flooding with buffer-cap assertions and child reaping, real silent-process timeout/reaping, invalid JSON and nonzero exit results for both CLI entry points, MCP oversized/truncated frames, queue backpressure, bounded stderr retention under a real stderr flood, independent `open_binary`/`binary_overview` error results, stalled initialization, invalid provider rejection, a real stalled MCP server timeout/reap check, and real POSIX descendant signaling for both adapters. The inspected tests do not comprehensively assert:
 - nonzero exit status and stderr truncation for both CLI methods;
 - malformed JSON with exit status zero and nonzero;
 - oversized stdout/stderr behavior;
@@ -94,3 +94,6 @@ R-01 mitigation was committed on `main` in commits `95ffbd8`, `0360499`, `a27df1
 
 
 **Additional real-process resource-bound verification (2026-10-12):** commit [`26a9831`](https://github.com/LU9DI/AURIX/commit/26a9831251df50b1a16b4007ba989dc619ae6fa5) passed [CI run 38322382715](https://github.com/LU9DI/AURIX/actions/runs/38322382715): compile and Ruff passed; 325 tests passed in 16.12 seconds. New integration tests run a real Python child that floods stdout and stderr, assert captured buffers stay within configured byte caps and the child is reaped, then run a separate silent child and assert timeout plus reaping. This validates the REA CLI runner in the POSIX CI environment, not all operating systems or a whole-system memory sandbox.
+
+
+**MCP stderr-flood verification (2026-10-12):** commit [0a6110f](https://github.com/LU9DI/AURIX/commit/0a6110f5b943869a08412c21074f184d18fd1fba) passed [CI run 38322645892](https://github.com/LU9DI/AURIX/actions/runs/38322645892): compile, Ruff, and 326 tests passed in 14.76 seconds. A real child writes more than the configured stderr cap; the test waits for the reader to finish and confirms the retained tail is bounded and preserves the final sentinel. This is a POSIX CI verification, not cross-platform evidence.
