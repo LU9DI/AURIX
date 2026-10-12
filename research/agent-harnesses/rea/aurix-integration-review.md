@@ -35,11 +35,11 @@
 
 ### R-02 — The tests don't yet prove all failure/result contracts
 
-Current tests exercise representative happy paths, CLI timeout and output-budget termination, invalid JSON and nonzero exit results for both CLI entry points, MCP oversized/truncated frames, queue backpressure, bounded stderr retention, independent `open_binary`/`binary_overview` error results, stalled initialization, invalid provider rejection, and real POSIX descendant signaling for both adapters. The inspected tests do not comprehensively assert:
+Current tests exercise representative happy paths, CLI timeout and output-budget termination, invalid JSON and nonzero exit results for both CLI entry points, MCP oversized/truncated frames, queue backpressure, bounded stderr retention, independent `open_binary`/`binary_overview` error results, stalled initialization, invalid provider rejection, a real stalled MCP server timeout/reap check, and real POSIX descendant signaling for both adapters. The inspected tests do not comprehensively assert:
 - nonzero exit status and stderr truncation for both CLI methods;
 - malformed JSON with exit status zero and nonzero;
 - oversized stdout/stderr behavior;
-- MCP repeated unsolicited lines, process termination after timeout under a real stalled server, and stderr flooding;
+- MCP repeated unsolicited lines and stderr flooding;
 - invalid or unavailable REA provider identifiers at the MCP boundary;
 - failure of `open_binary` versus failure of `binary_overview` independently.
 
@@ -71,7 +71,7 @@ The adapters do not launch the analyzed target application, which is a meaningfu
 
 **Priority:** deployment-dependent; treat as an architecture boundary, not a code-level guarantee.
 
-**Latest integration-test verification (2026-10-12):** commit [`d85fec6`](https://github.com/LU9DI/AURIX/commit/d85fec63b557936ead4b998cc7eb925b546373c5) passed [CI run 38320217706](https://github.com/LU9DI/AURIX/actions/runs/38320217706): compile, Ruff, and 322 tests passed in 7.82 seconds. The new real-descendant test initially exposed a malformed subprocess fixture caused by double-escaped newlines; that test-fixture defect was corrected before this passing run. This verifies POSIX signal propagation in the test environment only; it does not establish equivalent behavior on Windows or a complete sandbox boundary.
+**Latest integration-test verification (2026-10-12):** commit [`66857a5`](https://github.com/LU9DI/AURIX/commit/66857a5ce8eb1e2de61fb46ddd73dda1c6c3ee75) passed [CI run 38320330529](https://github.com/LU9DI/AURIX/actions/runs/38320330529): compile, Ruff, and 323 tests passed in 8.84 seconds. This run also includes an end-to-end stalled MCP server test that verifies timeout status and confirms the server process is reaped. The new real-descendant test initially exposed a malformed subprocess fixture caused by double-escaped newlines; that test-fixture defect was corrected before this passing run. This verifies POSIX signal propagation in the test environment only; it does not establish equivalent behavior on Windows or a complete sandbox boundary.
 
 ## Suggested verification matrix
 
