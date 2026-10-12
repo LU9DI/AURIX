@@ -499,3 +499,39 @@ def test_mcp_rejects_invalid_provider_before_launch(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="Invalid REA provider ID"):
         rea_mcp.investigate_binary_with_rea_mcp(tmp_path, "sample.bin", provider="bad provider")
+
+
+def test_mcp_real_stalled_server_times_out_and_is_reaped(monkeypatch, tmp_path):
+    import os
+    import subprocess
+
+    target = tmp_path / "sample.bin"
+    target.write_bytes(b"fixture")
+    server = tmp_path / "stalled-rea-mcp"
+    server.write_text(
+        "#!/usr/bin/env python3\\n"
+        "import time\\n"
+        "while True: time.sleep(0.1)\\n",
+        encoding="utf-8",
+    )
+    server.chmod(0o755)
+
+    real_popen = subprocess.Popen
+    launched = []
+
+    def capture_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        launched.append(process)
+        return process
+
+    monkeypatch.setattr(rea_mcp, "_rea_executable", lambda: str(server))
+    monkeypatch.setattr(rea_mcp, "_child_environment", lambda: {"PATH": os.environ.get("PATH", "")})
+    monkeypatch.setattr(rea_mcp.subprocess, "Popen", capture_popen)
+
+    result = rea_mcp.investigate_binary_with_rea_mcp(
+        tmp_path, "sample.bin", timeout_seconds=1
+    )
+
+    assert result["status"] == "timeout"
+    assert result["target_executed"] is False
+    assert launched and launched[0].poll() is not None
