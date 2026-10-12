@@ -59,7 +59,6 @@ def inspect_project(workspace: Path | str, *, max_files: int = MAX_FILES) -> dic
 
     # Walk without following symlink directories; prune common generated/vendor trees.
     for current, dirs, files in _walk(root):
-        relative_dir = Path(current).relative_to(root)
         dirs[:] = sorted(
             d for d in dirs if d not in IGNORED_DIRS and not (Path(current) / d).is_symlink()
         )
