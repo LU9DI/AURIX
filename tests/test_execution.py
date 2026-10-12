@@ -86,6 +86,10 @@ def test_docker_mode_is_network_disabled_and_never_pulls(monkeypatch, tmp_path):
     assert result["isolation"] == "docker"
     assert "--network=none" in calls[1][0]
     assert "--read-only" in calls[1][0]
+    assert "--user=65532:65532" in calls[1][0]
+    mount = calls[1][0][calls[1][0].index("--mount") + 1]
+    assert mount.endswith("dst=/workspace,readonly")
+    assert ",rw" not in mount
     assert "--cap-drop=ALL" in calls[1][0]
     assert "--pull=never" in calls[1][0]
     assert "--name" in calls[1][0]
