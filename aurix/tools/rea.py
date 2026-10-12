@@ -45,6 +45,91 @@ def _child_environment() -> dict[str, str]:
     return {key: os.environ[key] for key in allowed if key in os.environ}
 
 
+
+
+def _run_bounded(
+    argv: list[str], *, cwd: Path, env: dict[str, str], timeout: int
+) -> dict[str, Any]:
+    """Capture process output incrementally; terminate on a combined byte budget.
+
+    Each pipe is drained by a dedicated thread to avoid deadlocks. Retained
+    output is bounded independently of the amount emitted by the child.
+    """
+    import threading
+    import time
+
+    limit_bytes = (MAX_STDOUT_CHARS + MAX_STDERR_CHARS) * 4
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    totals = {"stdout": 0, "stderr": 0}
+    exceeded = threading.Event()
+    failures: list[BaseException] = []
+    process = subprocess.Popen(
+        argv,
+        cwd=cwd,
+        env=env,
+        shell=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+        bufsize=0,
+    )
+
+    def drain(name: str, stream: Any, cap: int) -> None:
+        try:
+            while True:
+                chunk = stream.read(8192)
+                if not chunk:
+                    break
+                totals[name] += len(chunk)
+                remaining = cap - len(buffers[name])
+                if remaining > 0:
+                    buffers[name].extend(chunk[:remaining])
+                if totals["stdout"] + totals["stderr"] > limit_bytes:
+                    exceeded.set()
+        except (OSError, ValueError) as exc:
+            failures.append(exc)
+
+    threads = [
+        threading.Thread(target=drain, args=("stdout", process.stdout, MAX_STDOUT_CHARS * 4), daemon=True),
+        threading.Thread(target=drain, args=("stderr", process.stderr, MAX_STDERR_CHARS * 4), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    deadline = time.monotonic() + timeout
+    timed_out = False
+    while process.poll() is None:
+        if exceeded.is_set():
+            break
+        if time.monotonic() >= deadline:
+            timed_out = True
+            break
+        time.sleep(0.02)
+    if process.poll() is None and (exceeded.is_set() or timed_out):
+        process.terminate()
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+    for thread in threads:
+        thread.join(timeout=2)
+    for stream in (process.stdout, process.stderr):
+        if stream is not None:
+            stream.close()
+    return {
+        "returncode": process.returncode,
+        "stdout": bytes(buffers["stdout"]).decode("utf-8", errors="replace"),
+        "stderr": bytes(buffers["stderr"]).decode("utf-8", errors="replace"),
+        "timed_out": timed_out,
+        "output_limit_exceeded": exceeded.is_set(),
+    }
+
+
 def analyze_javascript_application(
     workspace: Path | str,
     relative_path: str = ".",
@@ -75,37 +160,26 @@ def analyze_javascript_application(
     timeout = max(1, min(int(timeout_seconds), MAX_TIMEOUT_SECONDS))
     executable = _rea_executable()
     argv = [executable, "analyze-javascript-application", str(target), "--json"]
-    try:
-        completed = subprocess.run(
-            argv,
-            cwd=root,
-            env=_child_environment(),
-            shell=False,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
+    completed = _run_bounded(argv, cwd=root, env=_child_environment(), timeout=timeout)
+    if completed["timed_out"] or completed["output_limit_exceeded"]:
         return {
-            "status": "timeout",
+            "status": "timeout" if completed["timed_out"] else "output_limit_exceeded",
             "tool": "rea",
             "target": target.relative_to(root).as_posix(),
             "timeout_seconds": timeout,
-            "stdout": str(exc.stdout or "")[-MAX_STDOUT_CHARS:],
-            "stderr": str(exc.stderr or "")[-MAX_STDERR_CHARS:],
+            "stdout": completed["stdout"][-MAX_STDOUT_CHARS:],
+            "stderr": completed["stderr"][-MAX_STDERR_CHARS:],
+            "output_limit_exceeded": completed["output_limit_exceeded"],
             "application_executed": False,
         }
 
-    stdout = completed.stdout[-MAX_STDOUT_CHARS:]
-    stderr = completed.stderr[-MAX_STDERR_CHARS:]
+    stdout = completed["stdout"][-MAX_STDOUT_CHARS:]
+    stderr = completed["stderr"][-MAX_STDERR_CHARS:]
     result: dict[str, Any] = {
-        "status": "completed" if completed.returncode == 0 else "failed",
+        "status": "completed" if completed["returncode"] == 0 else "failed",
         "tool": "rea",
         "target": target.relative_to(root).as_posix(),
-        "returncode": completed.returncode,
+        "returncode": completed["returncode"],
         "application_executed": False,
         "stderr": stderr,
     }
@@ -190,37 +264,26 @@ def investigate_with_rea(
         target_label = target.relative_to(root).as_posix()
     executable = _rea_executable()
     argv = [executable, *argv_tail]
-    try:
-        completed = subprocess.run(
-            argv,
-            cwd=root,
-            env=_child_environment(),
-            shell=False,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
+    completed = _run_bounded(argv, cwd=root, env=_child_environment(), timeout=timeout)
+    if completed["timed_out"] or completed["output_limit_exceeded"]:
         return {
-            "status": "timeout",
+            "status": "timeout" if completed["timed_out"] else "output_limit_exceeded",
             "tool": "rea",
             "command": command,
             "target": target_label,
             "timeout_seconds": timeout,
-            "stdout": str(exc.stdout or "")[-MAX_STDOUT_CHARS:],
-            "stderr": str(exc.stderr or "")[-MAX_STDERR_CHARS:],
+            "stdout": completed["stdout"][-MAX_STDOUT_CHARS:],
+            "stderr": completed["stderr"][-MAX_STDERR_CHARS:],
+            "output_limit_exceeded": completed["output_limit_exceeded"],
             "target_executed": False,
         }
-    stdout, stderr = completed.stdout, completed.stderr
+    stdout, stderr = completed["stdout"], completed["stderr"]
     result: dict[str, Any] = {
-        "status": "completed" if completed.returncode == 0 else "failed",
+        "status": "completed" if completed["returncode"] == 0 else "failed",
         "tool": "rea",
         "command": command,
         "target": target_label,
-        "returncode": completed.returncode,
+        "returncode": completed["returncode"],
         "target_executed": False,
         "stderr": stderr[-MAX_STDERR_CHARS:],
         "output_truncated": len(stdout) > MAX_STDOUT_CHARS,
