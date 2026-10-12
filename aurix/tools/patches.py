@@ -864,7 +864,6 @@ def recover_transaction(
         raise PermissionError("Explicit confirmation is required to recover a transaction")
     root = Path(workspace).expanduser().resolve()
     with _workspace_operation_lock(root):
-        metadata = root / ".aurix"
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
             journal = _load_strict_json(journal_path.read_text(encoding="utf-8"))
