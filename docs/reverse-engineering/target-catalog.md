@@ -1,6 +1,6 @@
 # Open-source agent and harness target catalogue
 
-This is a **starting queue**, not a claim that every target has been audited. Confirm repository availability, default branch, current commit, license, and security advisories at the start of each investigation. Prefer official upstream repositories and immutable commit URLs in evidence.
+This is a **starting queue**, not a claim that every target has been audited. The first preliminary source review is recorded at [Aider harness review](../../research/agent-harnesses/aider/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/audit.md). It is not a full security audit or a runtime experiment. Confirm repository availability, default branch, current commit, license, and security advisories at the start of each investigation. Prefer official upstream repositories and immutable commit URLs in evidence.
 
 | Priority | Target | Official repository | What to inspect first | Relevance to AURIX |
 |---|---|---|---|---|
