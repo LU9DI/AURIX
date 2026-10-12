@@ -82,10 +82,7 @@ class _StdioMCP:
             return True
         except queue.Full:
             self._enqueue_terminal(_OVERSIZED_MESSAGE)
-            try:
-                self.process.terminate()
-            except OSError:
-                pass
+            _signal_process_tree(self.process)
             return False
 
     def _read_stdout(self) -> None:
@@ -110,10 +107,7 @@ class _StdioMCP:
                 if not has_newline:
                     # EOF in the middle of a JSON-RPC frame is a protocol error.
                     self._enqueue_terminal(_OVERSIZED_MESSAGE)
-                    try:
-                        self.process.terminate()
-                    except OSError:
-                        pass
+                    _signal_process_tree(self.process)
                     return
                 if not self._enqueue_frame(payload):
                     return
