@@ -70,7 +70,7 @@ def test_robots_disallow_is_reported_without_crashing(monkeypatch):
                 "results": [{"url": "https://example.org/private", "title": "Private page", "content": "snippet"}]
             }).encode()
         if url.endswith("/robots.txt"):
-            return 200, {"content-type": "text/plain"}, b"User-agent: *\\nDisallow: /\\n"
+            return 200, {"content-type": "text/plain"}, b"User-agent: *\nDisallow: /\n"
         raise AssertionError(f"Page should not be fetched when robots.txt disallows it: {url}")
 
     monkeypatch.setattr(research, "_get_limited", fake_get_limited)
