@@ -438,3 +438,64 @@ def test_mcp_tool_call_errors_are_not_reported_as_success(
         rea_mcp.investigate_binary_with_rea_mcp(tmp_path, "sample.bin")
 
     assert clients and clients[0].closed is True
+
+
+def test_mcp_initialization_timeout_returns_timeout_and_closes_client(monkeypatch, tmp_path):
+    target = tmp_path / "sample.bin"
+    target.write_bytes(b"fixture")
+
+    class Process:
+        stdin = None
+        pid = None
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+    class Client:
+        def __init__(self, process, timeout):
+            self.stderr = "initialization stalled"
+            self.closed = False
+
+        def request(self, method, params=None):
+            raise TimeoutError(f"REA MCP request timed out: {method}")
+
+        def close(self):
+            self.closed = True
+
+    clients = []
+
+    def fake_client(process, timeout):
+        client = Client(process, timeout)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(rea_mcp, "_rea_executable", lambda: "/usr/bin/rea")
+    monkeypatch.setattr(rea_mcp.subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(rea_mcp, "_child_environment", lambda: {"PATH": "/usr/bin"})
+    monkeypatch.setattr(rea_mcp, "_StdioMCP", fake_client)
+
+    result = rea_mcp.investigate_binary_with_rea_mcp(tmp_path, "sample.bin")
+
+    assert result["status"] == "timeout"
+    assert result["target_executed"] is False
+    assert result["stderr"] == "initialization stalled"
+    assert clients and clients[0].closed is True
+
+
+def test_mcp_rejects_invalid_provider_before_launch(monkeypatch, tmp_path):
+    target = tmp_path / "sample.bin"
+    target.write_bytes(b"fixture")
+
+    def unexpected_launch(*args, **kwargs):
+        raise AssertionError("invalid provider must be rejected before process launch")
+
+    monkeypatch.setattr(rea_mcp.subprocess, "Popen", unexpected_launch)
+
+    with pytest.raises(ValueError, match="Invalid REA provider ID"):
+        rea_mcp.investigate_binary_with_rea_mcp(tmp_path, "sample.bin", provider="bad provider")
