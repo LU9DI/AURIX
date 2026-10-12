@@ -563,3 +563,46 @@ def test_mcp_real_stderr_flood_retains_only_bounded_tail():
         assert client.stderr.endswith("TAIL_SENTINEL")
     finally:
         client.close()
+
+
+
+def test_mcp_request_ignores_notifications_and_mismatched_response_ids():
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.timeout = 1
+    import time
+
+    client.deadline = time.monotonic() + 1
+    client._next_id = 1
+    client._messages = queue.Queue(maxsize=4)
+
+    class Stdin:
+        def write(self, wire):
+            request = json.loads(wire)
+            client._messages.put_nowait(
+                json.dumps({"jsonrpc": "2.0", "method": "notifications/progress", "params": {}})
+            )
+            client._messages.put_nowait(
+                json.dumps({"jsonrpc": "2.0", "id": 99, "result": {"wrong": True}})
+            )
+            client._messages.put_nowait(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request["id"],
+                        "result": {"right": True},
+                    }
+                )
+            )
+
+        def flush(self):
+            pass
+
+    class Process:
+        stdin = Stdin()
+
+        def poll(self):
+            return None
+
+    client.process = Process()
+
+    assert client.request("initialize") == {"right": True}
