@@ -372,3 +372,59 @@ def test_mcp_stderr_capture_is_bounded(monkeypatch):
 
     assert len(client.stderr) <= 32
     assert client.stderr == ("diagnostic-" * 100)[-32:]
+
+
+@pytest.mark.parametrize(
+    ("failing_tool", "expected_message"),
+    [
+        ("open_binary", "open_binary returned an error result"),
+        ("binary_overview", "binary_overview returned an error result"),
+    ],
+)
+def test_mcp_tool_call_errors_are_not_reported_as_success(
+    monkeypatch, tmp_path, failing_tool, expected_message
+):
+    target = tmp_path / "sample.bin"
+    target.write_bytes(b"fixture")
+
+    class Process:
+        stdin = None
+
+    class Client:
+        def __init__(self, process, timeout):
+            self.stderr = ""
+            self.calls = []
+            self.closed = False
+
+        def request(self, method, params=None):
+            self.calls.append((method, params))
+            if method == "initialize":
+                return {"protocolVersion": "2025-03-26"}
+            if method == "tools/list":
+                return {"tools": [{"name": "open_binary"}, {"name": "binary_overview"}]}
+            if method == "tools/call" and params["name"] == failing_tool:
+                return {"isError": True, "content": [{"type": "text", "text": "fixture failure"}]}
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        def notify(self, method, params=None):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    clients = []
+
+    def fake_client(process, timeout):
+        client = Client(process, timeout)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(rea_mcp, "_rea_executable", lambda: "/usr/bin/rea")
+    monkeypatch.setattr(rea_mcp.subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(rea_mcp, "_child_environment", lambda: {"PATH": "/usr/bin"})
+    monkeypatch.setattr(rea_mcp, "_StdioMCP", fake_client)
+
+    with pytest.raises(RuntimeError, match=expected_message):
+        rea_mcp.investigate_binary_with_rea_mcp(tmp_path, "sample.bin")
+
+    assert clients and clients[0].closed is True
