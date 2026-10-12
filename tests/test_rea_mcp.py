@@ -272,3 +272,32 @@ def test_mcp_stdout_rejects_truncated_frame_at_eof(monkeypatch):
 
     assert process.terminated is True
     assert client._messages.get_nowait() == rea_mcp._OVERSIZED_MESSAGE
+
+
+def test_mcp_stdout_does_not_block_when_message_queue_is_full(monkeypatch):
+    monkeypatch.setattr(rea_mcp, "MAX_MCP_MESSAGE_CHARS", 64)
+
+    class Stream:
+        def __init__(self):
+            self.items = iter(['{"jsonrpc":"2.0","id":1}\\n', ""])
+
+        def readline(self, size):
+            return next(self.items)
+
+    class Process:
+        stdout = Stream()
+        terminated = False
+
+        def terminate(self):
+            self.terminated = True
+
+    process = Process()
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.process = process
+    client._messages = queue.Queue(maxsize=1)
+    client._messages.put_nowait("already queued")
+
+    client._read_stdout()
+
+    assert process.terminated is True
+    assert client._messages.get_nowait() == rea_mcp._OVERSIZED_MESSAGE
