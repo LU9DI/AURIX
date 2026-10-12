@@ -16,6 +16,8 @@ from aurix.tools.workspace import safe_path
 MAX_MCP_MESSAGE_CHARS = 1_000_000
 MAX_MCP_STDERR_CHARS = 4_000
 MAX_MCP_TIMEOUT_SECONDS = 240
+_MAX_QUEUED_MCP_MESSAGES = 16
+_OVERSIZED_MESSAGE = "__AURIX_REA_MCP_OVERSIZED_MESSAGE__"
 READ_ONLY_MCP_TOOLS = {"binary_session", "binary_overview"}
 
 
@@ -26,7 +28,7 @@ class _StdioMCP:
         self.process = process
         self.timeout = timeout
         self.deadline = time.monotonic() + timeout
-        self._messages: queue.Queue[str | None] = queue.Queue()
+        self._messages: queue.Queue[str | None] = queue.Queue(maxsize=_MAX_QUEUED_MCP_MESSAGES)
         self._stderr_parts: list[str] = []
         self._stderr_size = 0
         self._next_id = 1
@@ -36,10 +38,29 @@ class _StdioMCP:
         self._stderr_reader.start()
 
     def _read_stdout(self) -> None:
+        """Parse newline-delimited frames without ever buffering an unbounded line."""
         assert self.process.stdout is not None
+        pending = ""
         try:
-            for line in self.process.stdout:
-                self._messages.put(line.rstrip("\r\n"))
+            while True:
+                chunk = self.process.stdout.read(4096)
+                if not chunk:
+                    break
+                pending += chunk
+                while "\n" in pending:
+                    line, pending = pending.split("\n", 1)
+                    line = line.rstrip("\r")
+                    if len(line) > MAX_MCP_MESSAGE_CHARS:
+                        self._messages.put(_OVERSIZED_MESSAGE)
+                        self.process.terminate()
+                        return
+                    self._messages.put(line)
+                if len(pending) > MAX_MCP_MESSAGE_CHARS:
+                    self._messages.put(_OVERSIZED_MESSAGE)
+                    self.process.terminate()
+                    return
+        except (OSError, ValueError):
+            pass
         finally:
             self._messages.put(None)
 
@@ -80,6 +101,8 @@ class _StdioMCP:
                 raise TimeoutError(f"REA MCP request timed out: {method}") from exc
             if line is None:
                 raise RuntimeError("REA MCP server closed stdout before replying")
+            if line == _OVERSIZED_MESSAGE:
+                raise ValueError("REA MCP response exceeded the message-size limit")
             if len(line) > MAX_MCP_MESSAGE_CHARS:
                 raise ValueError("REA MCP response exceeded the message-size limit")
             try:
