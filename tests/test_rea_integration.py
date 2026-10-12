@@ -382,3 +382,66 @@ def test_rea_cli_process_group_uses_posix_signals(monkeypatch):
     rea._signal_process_group(Process(), force=True)
 
     assert calls == [(43211, signal.SIGTERM), (43211, signal.SIGKILL)]
+
+
+@pytest.mark.parametrize(
+    "signal_tree",
+    [rea._signal_process_group],
+    ids=["rea-cli-process-group"],
+)
+def test_posix_process_group_signal_reaches_real_descendant(signal_tree, tmp_path):
+    import os
+    import subprocess
+    import sys
+    import time
+
+    if os.name != "posix":
+        pytest.skip("POSIX process groups are not available")
+
+    child_started = tmp_path / "child-started"
+    child_terminated = tmp_path / "child-terminated"
+    child_code = (
+        "import signal,sys,time\\n"
+        "from pathlib import Path\\n"
+        f"marker=Path({str(child_terminated)!r})\\n"
+        "def stop(signum, frame):\\n"
+        " marker.write_text('received', encoding='utf-8')\\n"
+        " raise SystemExit(0)\\n"
+        "signal.signal(signal.SIGTERM, stop)\\n"
+        "while True: time.sleep(0.05)\\n"
+    )
+    parent_code = (
+        "import subprocess,sys,time\\n"
+        "from pathlib import Path\\n"
+        f"child=subprocess.Popen([sys.executable, '-c', {child_code!r}])\\n"
+        f"Path({str(child_started)!r}).write_text(str(child.pid), encoding='utf-8')\\n"
+        "while True: time.sleep(0.05)\\n"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", parent_code],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while not child_started.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert child_started.exists(), "descendant did not start in time"
+
+        signal_tree(process)
+
+        process.wait(timeout=3)
+        deadline = time.monotonic() + 3
+        while not child_terminated.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert child_terminated.exists(), "SIGTERM did not reach the descendant process"
+    finally:
+        try:
+            os.killpg(process.pid, __import__("signal").SIGKILL)
+        except ProcessLookupError:
+            pass
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=2)
