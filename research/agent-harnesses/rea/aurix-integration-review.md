@@ -35,7 +35,7 @@
 
 ### R-02 — The tests don't yet prove all failure/result contracts
 
-Current tests exercise representative happy paths, a CLI timeout, and several input validation failures. The inspected tests do not comprehensively assert:
+Current tests now exercise representative happy paths, a CLI timeout, output-budget termination, invalid JSON results for both CLI entry points, MCP oversized/truncated frames, and several input validation failures. The inspected tests do not comprehensively assert:
 - nonzero exit status and stderr truncation for both CLI methods;
 - malformed JSON with exit status zero and nonzero;
 - oversized stdout/stderr behavior;
@@ -47,6 +47,14 @@ Current tests exercise representative happy paths, a CLI timeout, and several in
 **Recommended remediation:** add deterministic fake-process tests for these branches before refactoring output handling. Assert status, maximum returned lengths, process cleanup, and that no target execution is reported.
 
 **Priority:** medium; these are assurance gaps, not individually confirmed bugs.
+
+### R-04 — Invalid JSON from the bounded CLI runner raised an attribute error — fixed; regression-tested
+
+**Evidence:** after switching the CLI adapter from `subprocess.run` to `_run_bounded`, the returned process result became a dictionary. Two invalid-JSON branches still accessed `completed.returncode` as an object attribute instead of `completed["returncode"]`, causing an `AttributeError` rather than returning the intended `invalid_output` status when the process exited successfully with non-JSON output.
+
+**Remediation:** fixed both branches in commit [`7bd5126`](https://github.com/LU9DI/AURIX/commit/7bd51262f4813f2f9a42fd7144bb34500efc99f2) and added regression tests for both static JavaScript analysis and native investigation in [`8b40976`](https://github.com/LU9DI/AURIX/commit/8b40976be6f305171e818bed855da9ca9722b84d). CI runs for those commits passed: [fix](https://github.com/LU9DI/AURIX/actions/runs/38315732945) and [tests](https://github.com/LU9DI/AURIX/actions/runs/38315748052).
+
+**Status:** fixed for the covered branches. Additional malformed/truncated MCP frame tests are being verified in a newer CI run.
 
 ### R-03 — Static-analysis “read-only” is not an OS sandbox
 
