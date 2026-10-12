@@ -33,3 +33,13 @@ def test_unknown_provider_fails_closed(monkeypatch):
     monkeypatch.setenv("AURIX_PROVIDER", "magic")
     with pytest.raises(ValueError, match="Unknown AURIX_PROVIDER"):
         create_provider()
+
+
+def test_openai_compatible_rejects_remote_http_endpoints():
+    with pytest.raises(ValueError, match="must use HTTPS"):
+        OpenAICompatibleProvider(base_url="http://api.example.com/v1", api_key="test-key")
+
+
+def test_openai_compatible_accepts_remote_https_endpoints():
+    provider = OpenAICompatibleProvider(base_url="https://api.example.com/v1", api_key="test-key")
+    assert provider.base_url == "https://api.example.com/v1"
