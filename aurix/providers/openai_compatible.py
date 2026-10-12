@@ -7,7 +7,9 @@ features beyond /v1/chat/completions.
 
 from __future__ import annotations
 
+import ipaddress
 import os
+from urllib.parse import urlparse
 
 import httpx
 
