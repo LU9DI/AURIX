@@ -329,3 +329,29 @@ def test_mcp_request_fails_fast_on_malformed_jsonrpc_stdout():
 
     with pytest.raises(ValueError, match="malformed JSON-RPC"):
         client.request("initialize")
+
+
+def test_mcp_process_tree_uses_dedicated_posix_process_group(monkeypatch):
+    import os
+    import signal
+
+    if os.name != "posix":
+        pytest.skip("POSIX process groups are not available")
+
+    calls = []
+
+    class Process:
+        pid = 43210
+
+        def terminate(self):
+            raise AssertionError("process-group signaling should be used")
+
+        def kill(self):
+            raise AssertionError("process-group signaling should be used")
+
+    monkeypatch.setattr(rea_mcp.os, "killpg", lambda pid, sig: calls.append((pid, sig)))
+
+    rea_mcp._signal_process_tree(Process())
+    rea_mcp._signal_process_tree(Process(), force=True)
+
+    assert calls == [(43210, signal.SIGTERM), (43210, signal.SIGKILL)]
