@@ -355,3 +355,20 @@ def test_mcp_process_tree_uses_dedicated_posix_process_group(monkeypatch):
     rea_mcp._signal_process_tree(Process(), force=True)
 
     assert calls == [(43210, signal.SIGTERM), (43210, signal.SIGKILL)]
+
+
+def test_mcp_stderr_capture_is_bounded(monkeypatch):
+    monkeypatch.setattr(rea_mcp, "MAX_MCP_STDERR_CHARS", 32)
+
+    class Process:
+        stderr = StringIO("diagnostic-" * 100)
+
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.process = Process()
+    client._stderr_parts = []
+    client._stderr_size = 0
+
+    client._read_stderr()
+
+    assert len(client.stderr) <= 32
+    assert client.stderr == ("diagnostic-" * 100)[-32:]
