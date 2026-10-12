@@ -14,6 +14,8 @@ Branch: `main`
 - Require HTTPS for remote OpenAI-compatible providers and allow plain HTTP only for loopback endpoints; add regression tests.
 - Harden Docker test execution further: run as a non-root UID and mount the workspace read-only, in addition to disabling networking and dropping capabilities.
 - Expand workspace secret exclusions to common credential directories (`.ssh`, `.aws`, `.azure`, `.gnupg`, `.docker`, `.kube`, `.terraform`, `.pulumi`) and token/credential files such as `.npmrc`, `.netrc`, `.pypirc`, Terraform state, and cloud service-account files, with regression coverage.
+- Enforce ignored-directory policy on direct reads and line-range reads as well as recursive search/context building, preventing direct access to `.git/` metadata and `.venv/` contents through the workspace reader.
+- Align execution-runner documentation and security notes with the actual read-only Docker workspace mount.
 - Add a documented REA-assisted research workstream with a public-source target catalogue, evidence schema, license review, reproducibility requirements, and isolation boundaries.
 - Normalize legacy formatting and configure CI to enforce syntax, unused-name/import, and core error checks while excluding the repository's existing long-line style debt.
 - Update the root README and recovery report.
@@ -21,10 +23,10 @@ Branch: `main`
 ## Final validation (2026-10-12)
 
 - Pull request #4 was merged into `main`; merge commit: `75699ddd3a3146016c5923f43b9c1560ed99ed49`.
-- Final root CI run: [38300231279](https://github.com/LU9DI/AURIX/actions/runs/38300231279) — **success**.
+- Latest root CI run after the direct-read hardening: [38301763383](https://github.com/LU9DI/AURIX/actions/runs/38301763383) — **success**.
 - `python -m compileall -q aurix tests`: passed.
 - Correctness-focused Ruff gate: passed. The gate checks `E` and `F` rules and excludes `E501` long-line debt; it is not a full style-cleanliness claim.
-- `pytest`: **301 passed in 9.02 seconds** on run [38301269010](https://github.com/LU9DI/AURIX/actions/runs/38301269010); compile and correctness-focused Ruff checks passed in the same run.
+- `pytest`: **302 passed in 9.98 seconds** on run [38301763383](https://github.com/LU9DI/AURIX/actions/runs/38301763383); compile and correctness-focused Ruff checks passed in the same run.
 - The canonical source and tests are at the repository root. The duplicate `AURIX-backup-work/source/` tree was removed after the legacy restore workflow reintroduced it; that obsolete workflow was then removed to prevent recurrence.
 - The complete uploaded backup and 84 historical release ZIPs remain preserved.
 
