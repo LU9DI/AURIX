@@ -152,12 +152,16 @@ class PublicIPPinningTransport(httpx.BaseTransport):
         headers = dict(request.headers)
         headers["Host"] = parsed.netloc
         headers["Connection"] = "close"
+        headers["Accept-Encoding"] = "identity"
         raw_path = request.url.raw_path
         target = raw_path.decode("ascii") if isinstance(raw_path, bytes) else str(raw_path)
         body = request.content if request.method.upper() not in {"GET", "HEAD"} else None
         try:
             connection.request(request.method, target or "/", body=body, headers=headers)
             response = connection.getresponse()
+            encoding = response.getheader("Content-Encoding", "").lower()
+            if encoding not in {"", "identity"}:
+                raise ValueError("Compressed research responses are not accepted")
             content = response.read(self._MAX_RESPONSE_BYTES)
             return httpx.Response(
                 response.status, headers=response.getheaders(), content=content, request=request
