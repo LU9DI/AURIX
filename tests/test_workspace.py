@@ -143,3 +143,36 @@ def test_direct_reads_reject_ignored_metadata_and_dependency_directories(tmp_pat
             read_text(tmp_path, relative)
         with pytest.raises(PermissionError, match="ignored"):
             read_text_lines(tmp_path, relative)
+
+
+
+def test_workspace_ignored_directories_are_case_insensitive(tmp_path):
+    from aurix.tools.workspace import (
+        build_workspace_context,
+        list_files,
+        read_text,
+        read_text_lines,
+        search_text,
+    )
+
+    (tmp_path / ".GIT").mkdir()
+    (tmp_path / ".GIT" / "config").write_text("CASE_VARIANT_GIT_SENTINEL", encoding="utf-8")
+    (tmp_path / ".VENV").mkdir()
+    (tmp_path / ".VENV" / "credentials.txt").write_text(
+        "CASE_VARIANT_VENV_SENTINEL", encoding="utf-8"
+    )
+    (tmp_path / "main.py").write_text("safe source", encoding="utf-8")
+
+    context = build_workspace_context(tmp_path)
+    listed = list_files(tmp_path)
+    matches = search_text(tmp_path, "SENTINEL")
+
+    assert "CASE_VARIANT_GIT_SENTINEL" not in context
+    assert "CASE_VARIANT_VENV_SENTINEL" not in context
+    assert not any(path.lower().startswith((".git/", ".venv/")) for path in listed)
+    assert matches == []
+    for relative in (".GIT/config", ".VENV/credentials.txt"):
+        with pytest.raises(PermissionError, match="ignored"):
+            read_text(tmp_path, relative)
+        with pytest.raises(PermissionError, match="ignored"):
+            read_text_lines(tmp_path, relative)
