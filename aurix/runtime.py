@@ -67,6 +67,9 @@ class ResponseCache:
     def workspace_fingerprint(workspace: Path) -> str:
         digest = hashlib.sha256()
         count = 0
+        hashed_bytes = 0
+        max_file_hash_bytes = 2_000_000
+        max_total_hash_bytes = 50_000_000
         try:
             for path in sorted(workspace.rglob("*")):
                 try:
