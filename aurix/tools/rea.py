@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,22 @@ from aurix.tools.workspace import safe_path
 MAX_STDOUT_CHARS = 32_000
 MAX_STDERR_CHARS = 4_000
 MAX_TIMEOUT_SECONDS = 120
+
+
+def _signal_process_group(process: subprocess.Popen[bytes], *, force: bool = False) -> None:
+    """Stop the bounded REA child and its descendants on POSIX."""
+    if os.name == "posix" and isinstance(getattr(process, "pid", None), int):
+        try:
+            os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
+            return
+        except ProcessLookupError:
+            return
+        except OSError:
+            pass
+    try:
+        process.kill() if force else process.terminate()
+    except (OSError, ProcessLookupError):
+        pass
 
 
 def _rea_executable() -> str:
@@ -68,6 +85,7 @@ def _run_bounded(
         cwd=cwd,
         env=env,
         shell=False,
+        start_new_session=(os.name == "posix"),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -106,15 +124,15 @@ def _run_bounded(
             break
         time.sleep(0.02)
     if process.poll() is None and (exceeded.is_set() or timed_out):
-        process.terminate()
+        _signal_process_group(process)
         try:
             process.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            process.kill()
+            _signal_process_group(process, force=True)
     try:
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        process.kill()
+        _signal_process_group(process, force=True)
         process.wait()
     for thread in threads:
         thread.join(timeout=2)
