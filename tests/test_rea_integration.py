@@ -30,7 +30,12 @@ def test_rea_runs_only_static_analysis_without_shell(monkeypatch, tmp_path):
 
     assert result["status"] == "completed"
     assert result["evidence"]["modules"] == 3
-    assert captured["argv"] == ["/usr/local/bin/rea", "analyze-javascript-application", str(app), "--json"]
+    assert captured["argv"] == [
+        "/usr/local/bin/rea",
+        "analyze-javascript-application",
+        str(app),
+        "--json",
+    ]
     assert captured["shell"] is False
     assert captured["timeout"] == 90
     assert captured["env"] == {"PATH": "/usr/bin"}
@@ -55,7 +60,7 @@ def test_rea_caps_timeout_and_reports_timeout(monkeypatch, tmp_path):
     app = tmp_path / "app.asar"
     app.write_bytes(b"fixture")
     monkeypatch.setattr(rea, "_rea_executable", lambda: "rea")
-    monkeypatch.setattr(rea, "_child_environment", lambda: {})
+    monkeypatch.setattr(rea, "_child_environment", dict)
     captured = {}
 
     def fake_run(argv, **kwargs):
@@ -78,15 +83,24 @@ def test_orchestrator_can_use_rea_static_analysis(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "aurix.orchestrator.analyze_javascript_application",
         lambda workspace, relative_path, timeout_seconds=90: {
-            "status": "completed", "tool": "rea", "target": relative_path,
-            "evidence": {"modules": 2, "imports": []}, "application_executed": False,
+            "status": "completed",
+            "tool": "rea",
+            "target": relative_path,
+            "evidence": {"modules": 2, "imports": []},
+            "application_executed": False,
         },
     )
 
     class SequenceProvider:
         def __init__(self):
             self.responses = [
-                json.dumps({"status": "tool_call", "tool": "rea_analyze_app", "arguments": {"path": "electron"}}),
+                json.dumps(
+                    {
+                        "status": "tool_call",
+                        "tool": "rea_analyze_app",
+                        "arguments": {"path": "electron"},
+                    }
+                ),
                 json.dumps({"status": "final", "message": "REA found two modules."}),
             ]
             self.prompts = []
@@ -99,7 +113,7 @@ def test_orchestrator_can_use_rea_static_analysis(monkeypatch, tmp_path):
     result = Orchestrator(provider, workspace=tmp_path).run("Inspect the Electron app")
     assert result.status == "completed"
     assert result.trace[0]["tool"] == "rea_analyze_app"
-    assert "\"modules\": 2" in provider.prompts[1]
+    assert '"modules": 2' in provider.prompts[1]
 
 
 def test_rea_investigate_uses_allowlisted_command_and_returns_evidence(monkeypatch, tmp_path):
@@ -121,10 +135,20 @@ def test_rea_investigate_uses_allowlisted_command_and_returns_evidence(monkeypat
         return Completed()
 
     monkeypatch.setattr(rea.subprocess, "run", fake_run)
-    result = rea.investigate_with_rea(tmp_path, "search", path="sample.bin", query="auth", provider="ghidra")
+    result = rea.investigate_with_rea(
+        tmp_path, "search", path="sample.bin", query="auth", provider="ghidra"
+    )
     assert result["status"] == "completed"
     assert result["evidence"]["functions"] == ["main"]
-    assert captured["argv"] == ["/usr/bin/rea", "search", str(app), "auth", "--provider", "ghidra", "--json"]
+    assert captured["argv"] == [
+        "/usr/bin/rea",
+        "search",
+        str(app),
+        "auth",
+        "--provider",
+        "ghidra",
+        "--json",
+    ]
     assert captured["shell"] is False
     assert captured["timeout"] == 90
     assert result["target_executed"] is False
@@ -149,16 +173,24 @@ def test_orchestrator_can_call_rea_investigate(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "aurix.orchestrator.investigate_with_rea",
         lambda workspace, command, **kwargs: {
-            "status": "completed", "tool": "rea", "command": command,
-            "evidence": {"functions": ["main"]}, "target_executed": False,
+            "status": "completed",
+            "tool": "rea",
+            "command": command,
+            "evidence": {"functions": ["main"]},
+            "target_executed": False,
         },
     )
 
     class SequenceProvider:
         def __init__(self):
             self.responses = [
-                json.dumps({"status": "tool_call", "tool": "rea_investigate", "arguments": {
-                    "command": "function", "path": "app.bin", "query": "main"}}),
+                json.dumps(
+                    {
+                        "status": "tool_call",
+                        "tool": "rea_investigate",
+                        "arguments": {"command": "function", "path": "app.bin", "query": "main"},
+                    }
+                ),
                 json.dumps({"status": "final", "message": "REA identified main."}),
             ]
             self.prompts = []

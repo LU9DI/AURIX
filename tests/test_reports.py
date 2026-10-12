@@ -12,7 +12,9 @@ def _valid_audit(tmp_path, *, proposal_id="a1b2c3d4e5f6", **overrides):
     proposal_dir = tmp_path / ".aurix" / "proposals"
     proposal_dir.mkdir(parents=True, exist_ok=True)
     proposal_path = proposal_dir / f"{proposal_id}.diff"
-    proposal_path.write_text("--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n", encoding="utf-8")
+    proposal_path.write_text(
+        "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n", encoding="utf-8"
+    )
     audit = {
         "proposal_id": proposal_id,
         "proposal_sha256": hashlib.sha256(proposal_path.read_bytes()).hexdigest(),
@@ -27,8 +29,15 @@ def _valid_audit(tmp_path, *, proposal_id="a1b2c3d4e5f6", **overrides):
 
 
 def test_write_run_report_contains_metadata_not_raw_tool_results(tmp_path):
-    result = TaskResult("completed", "Inspected files.", 1, [{"step": 1, "tool": "list_files", "tool_result_chars": 42}])
-    saved = write_run_report(tmp_path, "reports/run.json", task="Inspect source", result=result, provider="FakeProvider")
+    result = TaskResult(
+        "completed",
+        "Inspected files.",
+        1,
+        [{"step": 1, "tool": "list_files", "tool_result_chars": 42}],
+    )
+    saved = write_run_report(
+        tmp_path, "reports/run.json", task="Inspect source", result=result, provider="FakeProvider"
+    )
     data = json.loads((tmp_path / "reports/run.json").read_text(encoding="utf-8"))
     assert saved["status"] == "written"
     assert data["schema_version"] == 2
@@ -41,13 +50,20 @@ def test_write_run_report_contains_metadata_not_raw_tool_results(tmp_path):
 
 
 def test_run_report_persists_memory_provenance_without_memory_text(tmp_path):
-    evidence = [{
-        "id": 7, "scope": "repo:alpha", "kind": "fact",
-        "relevance_score": 0.82, "retrieval_mode": "lexical",
-        "matched_terms": ["auth", "token"],
-    }]
+    evidence = [
+        {
+            "id": 7,
+            "scope": "repo:alpha",
+            "kind": "fact",
+            "relevance_score": 0.82,
+            "retrieval_mode": "lexical",
+            "matched_terms": ["auth", "token"],
+        }
+    ]
     result = TaskResult("completed", "Inspected files.", 1, [], evidence)
-    write_run_report(tmp_path, "reports/memory.json", task="Inspect auth", result=result, provider="Fake")
+    write_run_report(
+        tmp_path, "reports/memory.json", task="Inspect auth", result=result, provider="Fake"
+    )
     data = json.loads((tmp_path / "reports/memory.json").read_text(encoding="utf-8"))
     assert data["memory_evidence"] == evidence
     assert "content" not in data["memory_evidence"][0]
@@ -80,13 +96,25 @@ def test_report_rejects_internal_metadata_path(tmp_path):
 
 def test_report_links_proposals_without_storing_patch_content(tmp_path):
     proposal_id = "a1b2c3d4e5f6"
-    result = TaskResult("completed", "Prepared a patch", 1, [{
-        "step": 1, "tool": "propose_patch", "tool_status": "review_required",
-        "proposal_id": proposal_id, "tool_result_chars": 190,
-    }])
+    result = TaskResult(
+        "completed",
+        "Prepared a patch",
+        1,
+        [
+            {
+                "step": 1,
+                "tool": "propose_patch",
+                "tool_status": "review_required",
+                "proposal_id": proposal_id,
+                "tool_result_chars": 190,
+            }
+        ],
+    )
     write_run_report(tmp_path, "run.json", task="Improve module", result=result, provider="Fake")
     data = json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))
-    assert data["artifacts"]["proposals"] == [{"proposal_id": proposal_id, "status": "review_required"}]
+    assert data["artifacts"]["proposals"] == [
+        {"proposal_id": proposal_id, "status": "review_required"}
+    ]
     assert "old\n+new" not in json.dumps(data)
 
 
@@ -99,10 +127,18 @@ def test_report_ignores_malformed_proposal_identifiers(tmp_path):
 
 def test_attach_audit_to_run_report_persists_compact_evidence(tmp_path):
     result = TaskResult("completed", "Prepared a patch", 1, [])
-    write_run_report(tmp_path, "reports/run.json", task="Improve module", result=result, provider="Fake")
-    audit = _valid_audit(tmp_path, review={"risk_level": "medium", "finding_count": 2},
-                         verification={"status": "verified_fail", "suite": "pytest",
-                                       "test_result": {"stdout": "SECRET TEST OUTPUT"}})
+    write_run_report(
+        tmp_path, "reports/run.json", task="Improve module", result=result, provider="Fake"
+    )
+    audit = _valid_audit(
+        tmp_path,
+        review={"risk_level": "medium", "finding_count": 2},
+        verification={
+            "status": "verified_fail",
+            "suite": "pytest",
+            "test_result": {"stdout": "SECRET TEST OUTPUT"},
+        },
+    )
     attached = attach_audit_to_run_report(tmp_path, "reports/run.json", audit_result=audit)
     saved = json.loads((tmp_path / "reports/run.json").read_text(encoding="utf-8"))
     assert attached["status"] == "updated"
@@ -161,7 +197,9 @@ def test_audit_attachment_refreshes_integrity_digest(tmp_path):
 def test_run_report_without_integrity_is_not_treated_as_valid(tmp_path):
     from aurix.reports import verify_run_report
 
-    (tmp_path / "legacy.json").write_text(json.dumps({"schema_version": 2, "run_id": "legacy"}), encoding="utf-8")
+    (tmp_path / "legacy.json").write_text(
+        json.dumps({"schema_version": 2, "run_id": "legacy"}), encoding="utf-8"
+    )
     result = verify_run_report(tmp_path, "legacy.json")
     assert result["status"] == "missing_integrity"
     assert result["valid"] is False
@@ -189,8 +227,11 @@ def test_audit_attachment_preserves_previous_report_digest(tmp_path):
     write_run_report(tmp_path, "run.json", task="Inspect", result=result, provider="Fake")
     before = json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))
     old_digest = before["integrity"]["digest"]
-    audit = _valid_audit(tmp_path, status="reviewed_verification_not_run",
-                         review={"risk_level": "low", "finding_count": 0})
+    audit = _valid_audit(
+        tmp_path,
+        status="reviewed_verification_not_run",
+        review={"risk_level": "low", "finding_count": 0},
+    )
     attached = attach_audit_to_run_report(tmp_path, "run.json", audit_result=audit)
     after = json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))
     assert attached["previous_digest"] == old_digest
@@ -203,8 +244,11 @@ def test_attach_audit_rejects_malformed_nested_metadata(tmp_path):
     result = TaskResult("completed", "ok", 1, [])
     write_run_report(tmp_path, "run.json", task="Inspect", result=result, provider="Fake")
     audit = {
-        "proposal_id": "a1b2c3d4e5f6", "proposal_sha256": "e" * 64,
-        "review": "not-an-object", "verification": {}, "application": {},
+        "proposal_id": "a1b2c3d4e5f6",
+        "proposal_sha256": "e" * 64,
+        "review": "not-an-object",
+        "verification": {},
+        "application": {},
     }
     with pytest.raises(ValueError, match="nested metadata"):
         attach_audit_to_run_report(tmp_path, "run.json", audit_result=audit)

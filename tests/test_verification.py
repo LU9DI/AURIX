@@ -9,7 +9,9 @@ def make_repo(tmp_path, *, expected="new"):
     root = tmp_path / "repo"
     root.mkdir()
     subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(root), "config", "user.email", "aurix-test@example.invalid"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "aurix-test@example.invalid"], check=True
+    )
     subprocess.run(["git", "-C", str(root), "config", "user.name", "AURIX tests"], check=True)
     (root / "app.py").write_text("value = 'old'\n", encoding="utf-8")
     tests = root / "tests"
@@ -19,7 +21,9 @@ def make_repo(tmp_path, *, expected="new"):
         encoding="utf-8",
     )
     subprocess.run(["git", "-C", str(root), "add", "app.py", "tests/test_app.py"], check=True)
-    subprocess.run(["git", "-C", str(root), "commit", "-m", "initial"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", "initial"], check=True, capture_output=True
+    )
     proposal_dir = root / ".aurix" / "proposals"
     proposal_dir.mkdir(parents=True)
     proposal_id = "a1b2c3d4e5f6"
@@ -44,11 +48,19 @@ def test_verify_runs_in_worktree_and_preserves_primary_checkout(tmp_path):
     assert len(result["evidence_sha256"]) == 64
     assert result["primary_workspace_modified"] is False
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
-    status = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
-                            check=True, capture_output=True, text=True)
+    status = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     assert status.stdout == ""
-    worktrees = subprocess.run(["git", "-C", str(root), "worktree", "list", "--porcelain"],
-                               check=True, capture_output=True, text=True)
+    worktrees = subprocess.run(
+        ["git", "-C", str(root), "worktree", "list", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     assert worktrees.stdout.count("worktree ") == 1
 
 
@@ -85,7 +97,9 @@ def test_verify_detects_regression_against_passing_baseline(tmp_path):
 
 def test_verify_can_skip_baseline_comparison(tmp_path):
     root, proposal_id = make_repo(tmp_path)
-    result = verify_proposal(root, proposal_id, confirm=True, suite="pytest", compare_baseline=False)
+    result = verify_proposal(
+        root, proposal_id, confirm=True, suite="pytest", compare_baseline=False
+    )
     assert result["baseline_result"] is None
     assert result["regression_status"] == "not_compared"
 
@@ -102,12 +116,18 @@ def test_auto_suite_falls_back_to_full_suite_without_manifest(tmp_path):
 
 def test_auto_suite_uses_only_explicit_complete_test_map(tmp_path):
     import json
+
     root, proposal_id = make_repo(tmp_path)
     metadata = root / ".aurix"
-    (metadata / "test-map.json").write_text(json.dumps({
-        "version": 1,
-        "mappings": {"app.py": ["tests/test_app.py"]},
-    }), encoding="utf-8")
+    (metadata / "test-map.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "mappings": {"app.py": ["tests/test_app.py"]},
+            }
+        ),
+        encoding="utf-8",
+    )
     result = verify_proposal(root, proposal_id, confirm=True, suite="auto")
     assert result["status"] == "verified_pass"
     assert result["test_selection"]["mode"] == "mapped_subset"
@@ -116,9 +136,12 @@ def test_auto_suite_uses_only_explicit_complete_test_map(tmp_path):
 
 def test_auto_suite_falls_back_when_any_changed_target_is_unmapped(tmp_path):
     import json
+
     root, proposal_id = make_repo(tmp_path)
     metadata = root / ".aurix"
-    (metadata / "test-map.json").write_text(json.dumps({"version": 1, "mappings": {}}), encoding="utf-8")
+    (metadata / "test-map.json").write_text(
+        json.dumps({"version": 1, "mappings": {}}), encoding="utf-8"
+    )
     result = verify_proposal(root, proposal_id, confirm=True, suite="auto")
     assert result["test_selection"]["mode"] == "full_suite"
     assert "No explicit test mapping" in result["test_selection"]["reason"]

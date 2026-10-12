@@ -27,7 +27,12 @@ class SQLiteMemory:
         return conn
 
     def add(self, scope: str, content: str, metadata: dict[str, Any] | None = None) -> int:
-        if not isinstance(scope, str) or not isinstance(content, str) or not scope.strip() or not content.strip():
+        if (
+            not isinstance(scope, str)
+            or not isinstance(content, str)
+            or not scope.strip()
+            or not content.strip()
+        ):
             raise ValueError("scope and content must be non-empty strings")
         metadata = validate_metadata(metadata)
         with self._connect() as conn:
@@ -37,7 +42,9 @@ class SQLiteMemory:
             )
             return int(cur.lastrowid)
 
-    def search(self, query: str, *, scope: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
+    def search(
+        self, query: str, *, scope: str | None = None, limit: int = 10
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 100))
         terms = [t for t in query.lower().split() if len(t) > 1][:8]
         sql, params, clauses = "SELECT * FROM memories", [], []
@@ -53,8 +60,16 @@ class SQLiteMemory:
         params.append(limit)
         with self._connect() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return [{"id": r["id"], "scope": r["scope"], "content": r["content"],
-                 "metadata": json.loads(r["metadata"]), "created_at": r["created_at"]} for r in rows]
+        return [
+            {
+                "id": r["id"],
+                "scope": r["scope"],
+                "content": r["content"],
+                "metadata": json.loads(r["metadata"]),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
 
     def delete(self, memory_id: int, *, scope: str | None = None) -> bool:
         if isinstance(memory_id, bool) or not isinstance(memory_id, int) or memory_id < 1:
@@ -63,11 +78,15 @@ class SQLiteMemory:
             if scope is None:
                 cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
             else:
-                cursor = conn.execute("DELETE FROM memories WHERE id = ? AND scope = ?", (memory_id, scope))
+                cursor = conn.execute(
+                    "DELETE FROM memories WHERE id = ? AND scope = ?", (memory_id, scope)
+                )
             return cursor.rowcount == 1
 
     def clear(self, *, scope: str | None = None) -> int:
         with self._connect() as conn:
-            cursor = conn.execute("DELETE FROM memories" if scope is None else "DELETE FROM memories WHERE scope = ?",
-                                  () if scope is None else (scope,))
+            cursor = conn.execute(
+                "DELETE FROM memories" if scope is None else "DELETE FROM memories WHERE scope = ?",
+                () if scope is None else (scope,),
+            )
             return int(cursor.rowcount)

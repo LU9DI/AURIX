@@ -58,7 +58,11 @@ def test_team_creates_specialists_and_synthesizes(tmp_path):
     result = manager.create_team("Design a resilient cache", factory)
     assert result["status"] == "completed"
     assert result["successful_agents"] == 3
-    assert {agent["role"] for agent in result["agents_created"]} == {"architect", "researcher", "reviewer"}
+    assert {agent["role"] for agent in result["agents_created"]} == {
+        "architect",
+        "researcher",
+        "reviewer",
+    }
     assert len(manager.list()) == 0  # task-scoped team profiles are cleaned up
     assert result["synthesis"] == "answer-3"
 
@@ -103,7 +107,9 @@ def test_team_runs_specialists_in_parallel_and_cleans_temporary_profiles(tmp_pat
                 return "specialist contribution"
             return "synthesized result"
 
-    result = manager.create_team("Design a safe task queue", lambda: ConcurrentProvider(), max_workers=3)
+    result = manager.create_team(
+        "Design a safe task queue", lambda: ConcurrentProvider(), max_workers=3
+    )
     assert result["status"] == "completed"
     assert result["execution_mode"] == "parallel"
     assert result["max_workers"] == 3
@@ -113,8 +119,9 @@ def test_team_runs_specialists_in_parallel_and_cleans_temporary_profiles(tmp_pat
 
 def test_team_sequential_mode_and_custom_worker_bound(tmp_path):
     manager = AgentManager(tmp_path / "agents.db")
-    result = manager.create_team("Review the architecture", lambda: FakeProvider("ok"),
-                                 parallel=False, max_workers=99)
+    result = manager.create_team(
+        "Review the architecture", lambda: FakeProvider("ok"), parallel=False, max_workers=99
+    )
     assert result["status"] == "completed"
     assert result["execution_mode"] == "sequential"
     assert result["max_workers"] == 1
@@ -135,13 +142,23 @@ def test_agent_tool_protocol_executes_only_role_allowed_read_only_tools(tmp_path
 
     (tmp_path / "README.md").write_text("AURIX safe workspace", encoding="utf-8")
     (tmp_path / ".env").write_text("TOKEN=do-not-read", encoding="utf-8")
-    provider = ToolCallingProvider([
-        json.dumps({"tool_calls": [{"name": "search_workspace", "arguments": {"query": "AURIX", "limit": 5}}]}),
-        "The README mentions AURIX. No secrets were read.",
-    ])
+    provider = ToolCallingProvider(
+        [
+            json.dumps(
+                {
+                    "tool_calls": [
+                        {"name": "search_workspace", "arguments": {"query": "AURIX", "limit": 5}}
+                    ]
+                }
+            ),
+            "The README mentions AURIX. No secrets were read.",
+        ]
+    )
     manager = AgentManager(tmp_path / ".aurix" / "agents.db")
     manager.create("research_agent", "researcher", "Inspect local repository evidence")
-    result = manager.run("research_agent", "Find project references", lambda: provider, workspace=tmp_path)
+    result = manager.run(
+        "research_agent", "Find project references", lambda: provider, workspace=tmp_path
+    )
     assert result["status"] == "completed"
     assert result["tool_calls"] == 1
     assert result["tool_results"][0]["status"] == "completed"
@@ -163,13 +180,16 @@ def test_agent_tool_permissions_reject_forbidden_tools(tmp_path):
 
 def test_agent_tool_request_parser_is_strict_and_bounded():
     import json
+
     from aurix.agent_tools import MAX_TOOL_CALLS, parse_tool_request
 
     assert parse_tool_request("ordinary answer") is None
-    assert parse_tool_request(json.dumps({"tool_calls": [{"name": "list_files", "arguments": {}}]})) == [
-        {"name": "list_files", "arguments": {}}
-    ]
-    too_many = {"tool_calls": [{"name": "list_files", "arguments": {}} for _ in range(MAX_TOOL_CALLS + 1)]}
+    assert parse_tool_request(
+        json.dumps({"tool_calls": [{"name": "list_files", "arguments": {}}]})
+    ) == [{"name": "list_files", "arguments": {}}]
+    too_many = {
+        "tool_calls": [{"name": "list_files", "arguments": {}} for _ in range(MAX_TOOL_CALLS + 1)]
+    }
     assert parse_tool_request(json.dumps(too_many)) is None
 
 

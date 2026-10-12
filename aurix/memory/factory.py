@@ -1,4 +1,5 @@
 """Construct the configured persistent memory backend."""
+
 from __future__ import annotations
 
 import os
@@ -23,7 +24,9 @@ def create_memory(
     root = Path(workspace).expanduser().resolve()
     if selected == "sqlite":
         configured_path = os.getenv("AURIX_MEMORY_PATH")
-        path = Path(configured_path).expanduser() if configured_path else root / ".aurix" / "memory.db"
+        path = (
+            Path(configured_path).expanduser() if configured_path else root / ".aurix" / "memory.db"
+        )
         if not path.is_absolute():
             path = root / path
         return SQLiteMemory(path)

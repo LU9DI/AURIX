@@ -1,13 +1,14 @@
 """Bounded context, conservative response caching, and token-budget helpers."""
+
 from __future__ import annotations
 
-from collections import OrderedDict
-from dataclasses import dataclass
 import hashlib
 import os
-from pathlib import Path
 import threading
 import time
+from collections import OrderedDict
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from aurix.telemetry import estimate_tokens
@@ -53,6 +54,7 @@ class ResponseCache:
     Tool calls are never cached. The cache stores response text in memory only and uses a
     workspace fingerprint so edits to project files invalidate prior entries.
     """
+
     def __init__(self, max_entries: int = 128, ttl_seconds: int = 300) -> None:
         self.max_entries = max(1, min(int(max_entries), 2048))
         self.ttl_seconds = max(1, min(int(ttl_seconds), 86_400))
@@ -69,12 +71,17 @@ class ResponseCache:
             for path in sorted(workspace.rglob("*")):
                 try:
                     rel = path.relative_to(workspace)
-                    if any(part in {".git", ".aurix", "__pycache__", ".pytest_cache"} for part in rel.parts):
+                    if any(
+                        part in {".git", ".aurix", "__pycache__", ".pytest_cache"}
+                        for part in rel.parts
+                    ):
                         continue
                     if path.is_symlink() or not path.is_file():
                         continue
                     stat = path.stat()
-                    digest.update(f"{rel.as_posix()}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode())
+                    digest.update(
+                        f"{rel.as_posix()}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode()
+                    )
                     count += 1
                     if count >= 20_000:
                         digest.update(b"TRUNCATED")
@@ -86,10 +93,17 @@ class ResponseCache:
         return digest.hexdigest()
 
     def make_key(self, provider: Any, system: str, prompt: str, workspace: Path) -> str:
-        identity = ":".join((type(provider).__module__, type(provider).__qualname__,
-                             str(getattr(provider, "model", "")),
-                             str(getattr(provider, "base_url", ""))))
-        content = "\0".join((identity, str(workspace), self.workspace_fingerprint(workspace), system, prompt))
+        identity = ":".join(
+            (
+                type(provider).__module__,
+                type(provider).__qualname__,
+                str(getattr(provider, "model", "")),
+                str(getattr(provider, "base_url", "")),
+            )
+        )
+        content = "\0".join(
+            (identity, str(workspace), self.workspace_fingerprint(workspace), system, prompt)
+        )
         return hashlib.sha256(content.encode("utf-8", errors="replace")).hexdigest()
 
     def get(self, key: str) -> str | None:

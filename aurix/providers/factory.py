@@ -1,4 +1,5 @@
 """Central provider selection; the core stays independent of inference vendors."""
+
 from __future__ import annotations
 
 import os
@@ -15,6 +16,5 @@ def create_provider(name: str | None = None) -> Provider:
     if provider in {"openai-compatible", "openai_compatible", "compatible"}:
         return OpenAICompatibleProvider()
     raise ValueError(
-        f"Unknown AURIX_PROVIDER={provider!r}. Supported providers: "
-        "ollama, openai-compatible."
+        f"Unknown AURIX_PROVIDER={provider!r}. Supported providers: ollama, openai-compatible."
     )

@@ -19,8 +19,10 @@ def test_diagnostics_are_read_only_and_report_workspace(tmp_path: Path, monkeypa
     monkeypatch.delenv("DATABASE_URL", raising=False)
     result = run_diagnostics(tmp_path)
     assert result["workspace"] == str(tmp_path.resolve())
-    assert any(item["name"] == "provider_probe" and item["status"] == "not_run"
-               for item in result["checks"])
+    assert any(
+        item["name"] == "provider_probe" and item["status"] == "not_run"
+        for item in result["checks"]
+    )
     assert not list(tmp_path.iterdir())
 
 

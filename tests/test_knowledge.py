@@ -8,8 +8,12 @@ from aurix.knowledge import KnowledgeIndex
 def test_index_and_search_without_provider(tmp_path: Path):
     project = tmp_path / "docs"
     project.mkdir()
-    (project / "python.md").write_text("Python testing uses pytest fixtures and assertions.\n", encoding="utf-8")
-    (project / "database.md").write_text("SQLite stores local records and structured knowledge.\n", encoding="utf-8")
+    (project / "python.md").write_text(
+        "Python testing uses pytest fixtures and assertions.\n", encoding="utf-8"
+    )
+    (project / "database.md").write_text(
+        "SQLite stores local records and structured knowledge.\n", encoding="utf-8"
+    )
     index = KnowledgeIndex(tmp_path / ".aurix" / "knowledge.db")
     result = index.index_path(project)
     assert result["indexed_files"] == 2

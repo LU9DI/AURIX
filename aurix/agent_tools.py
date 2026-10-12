@@ -4,16 +4,24 @@ The model never receives shell or arbitrary Python execution. Tool calls are exp
 JSON requests, checked against a role allowlist, schema-validated, and bounded.
 Repository content returned by tools is untrusted data, not instructions.
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from aurix.knowledge import KnowledgeIndex
-from aurix.tools.project_map import inspect_project
-from aurix.tools.workspace import IGNORED_DIRS, _is_sensitive, list_files, read_text, search_text, safe_path
 from aurix.tools.git_inspection import git_status
+from aurix.tools.project_map import inspect_project
+from aurix.tools.workspace import (
+    IGNORED_DIRS,
+    _is_sensitive,
+    list_files,
+    read_text,
+    safe_path,
+    search_text,
+)
 
 # Role-level capabilities are intentionally read-only. No role can write files,
 # run arbitrary commands, access credentials, or make network requests.
@@ -22,19 +30,53 @@ ROLE_TOOLS: dict[str, tuple[str, ...]] = {
     "researcher": ("project_map", "search_workspace", "knowledge_search"),
     "architect": ("project_map", "list_files", "search_workspace", "knowledge_search"),
     "coder": ("project_map", "list_files", "read_file", "search_workspace", "knowledge_search"),
-    "reviewer": ("project_map", "list_files", "read_file", "search_workspace", "knowledge_search", "git_status"),
-    "tester": ("project_map", "list_files", "read_file", "search_workspace", "knowledge_search", "git_status"),
-    "security": ("project_map", "list_files", "read_file", "search_workspace", "knowledge_search", "git_status"),
-    "documenter": ("project_map", "list_files", "read_file", "search_workspace", "knowledge_search"),
-    "optimizer": ("project_map", "list_files", "read_file", "search_workspace", "knowledge_search", "git_status"),
+    "reviewer": (
+        "project_map",
+        "list_files",
+        "read_file",
+        "search_workspace",
+        "knowledge_search",
+        "git_status",
+    ),
+    "tester": (
+        "project_map",
+        "list_files",
+        "read_file",
+        "search_workspace",
+        "knowledge_search",
+        "git_status",
+    ),
+    "security": (
+        "project_map",
+        "list_files",
+        "read_file",
+        "search_workspace",
+        "knowledge_search",
+        "git_status",
+    ),
+    "documenter": (
+        "project_map",
+        "list_files",
+        "read_file",
+        "search_workspace",
+        "knowledge_search",
+    ),
+    "optimizer": (
+        "project_map",
+        "list_files",
+        "read_file",
+        "search_workspace",
+        "knowledge_search",
+        "git_status",
+    ),
 }
 
 TOOL_DESCRIPTIONS: dict[str, str] = {
     "project_map": "Summarize project languages, manifests, tests, and CI. Arguments: {}",
-    "list_files": "List bounded workspace paths. Arguments: {\"path\": \".\", \"limit\": 100}",
-    "read_file": "Read a non-sensitive text file inside the workspace. Arguments: {\"path\": \"relative/path\", \"max_chars\": 8000}",
-    "search_workspace": "Search literal text in safe text files. Arguments: {\"query\": \"text\", \"limit\": 10}",
-    "knowledge_search": "Search the local AURIX knowledge index. Arguments: {\"query\": \"text\", \"limit\": 5}",
+    "list_files": 'List bounded workspace paths. Arguments: {"path": ".", "limit": 100}',
+    "read_file": 'Read a non-sensitive text file inside the workspace. Arguments: {"path": "relative/path", "max_chars": 8000}',
+    "search_workspace": 'Search literal text in safe text files. Arguments: {"query": "text", "limit": 10}',
+    "knowledge_search": 'Search the local AURIX knowledge index. Arguments: {"query": "text", "limit": 5}',
     "git_status": "Read-only Git status; only available to review/security/test/optimization roles. Arguments: {}",
 }
 MAX_TOOL_CALLS = 3
@@ -46,7 +88,9 @@ class AgentToolbox:
         self.workspace = Path(workspace).expanduser().resolve(strict=True)
         if not self.workspace.is_dir():
             raise ValueError("Agent tool workspace must be a directory")
-        self.knowledge_db = Path(knowledge_db) if knowledge_db else self.workspace / ".aurix" / "knowledge.db"
+        self.knowledge_db = (
+            Path(knowledge_db) if knowledge_db else self.workspace / ".aurix" / "knowledge.db"
+        )
 
     @staticmethod
     def allowed_for(role: str) -> tuple[str, ...]:
@@ -80,8 +124,18 @@ class AgentToolbox:
             relative_parts = target.relative_to(self.workspace).parts
             if any(part in IGNORED_DIRS for part in relative_parts) or _is_sensitive(target):
                 raise PermissionError("Tool access to ignored or sensitive paths is not allowed")
-            if target.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".pem", ".key", ".p12", ".pfx"}:
-                raise PermissionError("Tool access to database or binary/credential files is not allowed")
+            if target.suffix.lower() in {
+                ".db",
+                ".sqlite",
+                ".sqlite3",
+                ".pem",
+                ".key",
+                ".p12",
+                ".pfx",
+            }:
+                raise PermissionError(
+                    "Tool access to database or binary/credential files is not allowed"
+                )
             result = {"path": path, "content": read_text(self.workspace, path, max_chars=max_chars)}
         elif name == "search_workspace":
             self._require_keys(arguments, {"query", "limit"})
@@ -99,15 +153,23 @@ class AgentToolbox:
             if not self.knowledge_db.exists():
                 result = {"results": [], "note": "Local knowledge index does not exist yet."}
             else:
-                result = {"results": KnowledgeIndex(self.knowledge_db).search(query, limit=limit, max_chars=1200)}
+                result = {
+                    "results": KnowledgeIndex(self.knowledge_db).search(
+                        query, limit=limit, max_chars=1200
+                    )
+                }
         elif name == "git_status":
             self._require_keys(arguments, set())
             result = git_status(self.workspace)
         else:
             raise ValueError("Unknown tool")
         rendered = json.dumps(result, ensure_ascii=False, default=str)
-        return {"tool": name, "status": "completed", "result": rendered[:MAX_TOOL_RESULT_CHARS],
-                "truncated": len(rendered) > MAX_TOOL_RESULT_CHARS}
+        return {
+            "tool": name,
+            "status": "completed",
+            "result": rendered[:MAX_TOOL_RESULT_CHARS],
+            "truncated": len(rendered) > MAX_TOOL_RESULT_CHARS,
+        }
 
     @staticmethod
     def _require_keys(arguments: dict[str, Any], allowed: set[str]) -> None:

@@ -2,12 +2,13 @@
 
 Records metadata only; prompts and completions are deliberately never persisted.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,7 @@ class JSONLTelemetry:
 
     def record(self, event: dict[str, Any]) -> None:
         safe = dict(event)
-        safe.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        safe.setdefault("timestamp", datetime.now(UTC).isoformat())
         line = json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with _LOCK, self.path.open("a", encoding="utf-8") as stream:

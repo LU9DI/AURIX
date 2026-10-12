@@ -1,4 +1,5 @@
 import pytest
+
 from aurix.memory.sqlite import SQLiteMemory
 
 
@@ -36,8 +37,9 @@ def test_retrieval_is_scope_filtered_and_bounded(tmp_path):
     memory = SQLiteMemory(tmp_path / "memory.db")
     memory.add("repo:one", "authentication " + "detail " * 300)
     memory.add("repo:two", "authentication in another repository")
-    results = retrieve_memories(memory, "authentication", scope="repo:one", limit=1,
-                               max_content_chars=100)
+    results = retrieve_memories(
+        memory, "authentication", scope="repo:one", limit=1, max_content_chars=100
+    )
     assert len(results) == 1
     assert results[0]["scope"] == "repo:one"
     assert len(results[0]["content"]) == 100
@@ -67,8 +69,9 @@ def test_hybrid_retrieval_can_find_semantic_match_without_shared_terms(tmp_path)
     memory = SQLiteMemory(tmp_path / "memory.db")
     memory.add("repo:demo", "automobile mechanic diagnosis")
     memory.add("repo:demo", "car repair guide")
-    results = retrieve_memories(memory, "car repair", scope="repo:demo", embedder=FakeEmbedder(),
-                               lexical_weight=0.4)
+    results = retrieve_memories(
+        memory, "car repair", scope="repo:demo", embedder=FakeEmbedder(), lexical_weight=0.4
+    )
     assert results[0]["content"] == "automobile mechanic diagnosis"
     assert results[0]["retrieval_mode"] == "hybrid"
     assert results[0]["matched_terms"] == []
@@ -111,9 +114,11 @@ def test_retrieval_evaluation_rejects_nonpositive_k():
 
 def test_memory_evidence_metadata_is_persisted_and_validated(tmp_path):
     memory = SQLiteMemory(tmp_path / "memory.db")
-    record_id = memory.add("repo:demo", "The regression test passed", {
-        "kind": "test_result", "confidence": 1.0, "source": "ci"
-    })
+    record_id = memory.add(
+        "repo:demo",
+        "The regression test passed",
+        {"kind": "test_result", "confidence": 1.0, "source": "ci"},
+    )
     result = memory.search("regression", scope="repo:demo")[0]
     assert result["id"] == record_id
     assert result["metadata"]["kind"] == "test_result"
@@ -121,10 +126,16 @@ def test_memory_evidence_metadata_is_persisted_and_validated(tmp_path):
     assert result["metadata"]["source"] == "ci"
 
 
-@pytest.mark.parametrize("metadata", [
-    {"kind": "certainty"}, {"confidence": -0.1}, {"confidence": 1.1},
-    {"confidence": True}, {"confidence": "0.9"},
-])
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"kind": "certainty"},
+        {"confidence": -0.1},
+        {"confidence": 1.1},
+        {"confidence": True},
+        {"confidence": "0.9"},
+    ],
+)
 def test_memory_rejects_invalid_evidence_metadata(tmp_path, metadata):
     memory = SQLiteMemory(tmp_path / "memory.db")
     with pytest.raises(ValueError):
@@ -135,7 +146,8 @@ def test_memory_accepts_legacy_custom_metadata(tmp_path):
     memory = SQLiteMemory(tmp_path / "memory.db")
     memory.add("repo:demo", "Legacy metadata remains valid", {"source": "old-client", "custom": 7})
     assert memory.search("Legacy", scope="repo:demo")[0]["metadata"] == {
-        "source": "old-client", "custom": 7
+        "source": "old-client",
+        "custom": 7,
     }
 
 

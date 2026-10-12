@@ -1,12 +1,13 @@
 """Explicit, local run reports with path and symlink protections."""
+
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -54,17 +55,29 @@ def verify_run_report(workspace: str | Path, destination: str | Path) -> dict[st
         raise ValueError("Integrity verification requires a schema-version-2 run report")
     integrity = report.get("integrity")
     if not isinstance(integrity, dict) or integrity.get("algorithm") != "sha256":
-        return {"status": "missing_integrity", "valid": False,
-                "path": target.relative_to(root).as_posix(), "run_id": report.get("run_id")}
+        return {
+            "status": "missing_integrity",
+            "valid": False,
+            "path": target.relative_to(root).as_posix(),
+            "run_id": report.get("run_id"),
+        }
     expected = integrity.get("digest")
     actual = _report_digest(report)
     valid = isinstance(expected, str) and expected == actual
-    return {"status": "valid" if valid else "tampered", "valid": valid,
-            "path": target.relative_to(root).as_posix(), "run_id": report.get("run_id"),
-            "algorithm": "sha256", "expected_digest": expected, "actual_digest": actual}
+    return {
+        "status": "valid" if valid else "tampered",
+        "valid": valid,
+        "path": target.relative_to(root).as_posix(),
+        "run_id": report.get("run_id"),
+        "algorithm": "sha256",
+        "expected_digest": expected,
+        "actual_digest": actual,
+    }
 
 
-def write_run_report(workspace: str | Path, destination: str | Path, *, task: str, result: Any, provider: str) -> dict[str, Any]:
+def write_run_report(
+    workspace: str | Path, destination: str | Path, *, task: str, result: Any, provider: str
+) -> dict[str, Any]:
     """Write a report only when explicitly requested; destination must be inside workspace.
 
     Reports include the user's task and trace metadata, but never prompts, completions, or tool-result bodies.
@@ -98,16 +111,26 @@ def write_run_report(workspace: str | Path, destination: str | Path, *, task: st
         if not isinstance(item, dict):
             continue
         proposal_id = item.get("proposal_id")
-        if isinstance(proposal_id, str) and len(proposal_id) == 12 and all(c in "0123456789abcdef" for c in proposal_id):
-            proposals.append({"proposal_id": proposal_id, "status": item.get("tool_status", "unknown")})
+        if (
+            isinstance(proposal_id, str)
+            and len(proposal_id) == 12
+            and all(c in "0123456789abcdef" for c in proposal_id)
+        ):
+            proposals.append(
+                {"proposal_id": proposal_id, "status": item.get("tool_status", "unknown")}
+            )
     report = {
         "schema_version": 2,
         "run_id": uuid.uuid4().hex,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "task": task.strip(),
         "workspace": ".",
         "provider": provider,
-        "result": {"status": result.status, "message_chars": len(result.message), "steps": result.steps},
+        "result": {
+            "status": result.status,
+            "message_chars": len(result.message),
+            "steps": result.steps,
+        },
         "trace": result.trace,
         "memory_evidence": list(getattr(result, "memory_evidence", [])),
         "artifacts": {"proposals": proposals},
@@ -138,7 +161,12 @@ def write_run_report(workspace: str | Path, destination: str | Path, *, task: st
         except OSError:
             pass
         raise
-    return {"path": target.relative_to(root).as_posix(), "run_id": report["run_id"], "status": "written", "schema_version": 2}
+    return {
+        "path": target.relative_to(root).as_posix(),
+        "run_id": report["run_id"],
+        "status": "written",
+        "schema_version": 2,
+    }
 
 
 def attach_audit_to_run_report(
@@ -176,20 +204,34 @@ def attach_audit_to_run_report(
     # Never silently bless a modified report by recalculating its digest during attachment.
     integrity = verify_run_report(root, raw)
     if integrity["status"] != "valid":
-        raise ValueError(f"Cannot attach audit to report with integrity status: {integrity['status']}")
+        raise ValueError(
+            f"Cannot attach audit to report with integrity status: {integrity['status']}"
+        )
     if not isinstance(audit_result, dict):
         raise ValueError("Audit result must be an object")
     proposal_id = audit_result.get("proposal_id")
     proposal_digest = audit_result.get("proposal_sha256")
-    if not isinstance(proposal_id, str) or len(proposal_id) != 12 or not all(c in "0123456789abcdef" for c in proposal_id):
+    if (
+        not isinstance(proposal_id, str)
+        or len(proposal_id) != 12
+        or not all(c in "0123456789abcdef" for c in proposal_id)
+    ):
         raise ValueError("Audit result has an invalid proposal identifier")
-    if not isinstance(proposal_digest, str) or len(proposal_digest) != 64 or not all(c in "0123456789abcdef" for c in proposal_digest):
+    if (
+        not isinstance(proposal_digest, str)
+        or len(proposal_digest) != 64
+        or not all(c in "0123456789abcdef" for c in proposal_digest)
+    ):
         raise ValueError("Audit result has an invalid proposal SHA-256 digest")
 
     verification = audit_result.get("verification", {})
     review = audit_result.get("review", {})
     application = audit_result.get("application", {})
-    if not isinstance(verification, dict) or not isinstance(review, dict) or not isinstance(application, dict):
+    if (
+        not isinstance(verification, dict)
+        or not isinstance(review, dict)
+        or not isinstance(application, dict)
+    ):
         raise ValueError("Audit result contains invalid nested metadata")
 
     audited_at = audit_result.get("audited_at")
@@ -200,11 +242,17 @@ def attach_audit_to_run_report(
     verification_suite = verification.get("suite")
     applied = application.get("performed", False)
     allowed_audit_statuses = {
-        "reviewed_verification_not_run", "audit_passed", "audit_needs_attention",
+        "reviewed_verification_not_run",
+        "audit_passed",
+        "audit_needs_attention",
     }
     allowed_risk_levels = {"low", "medium", "high", "unknown"}
     allowed_verification_statuses = {
-        "not_run", "verified_pass", "verified_fail", "verification_failed", "refused",
+        "not_run",
+        "verified_pass",
+        "verified_fail",
+        "verification_failed",
+        "refused",
     }
     if not isinstance(audited_at, str) or not audited_at or len(audited_at) > 80:
         raise ValueError("Audit result has an invalid audited_at timestamp")
@@ -212,7 +260,11 @@ def attach_audit_to_run_report(
         raise ValueError("Audit result has an unsupported status")
     if risk_level not in allowed_risk_levels:
         raise ValueError("Audit result has an unsupported risk level")
-    if isinstance(finding_count, bool) or not isinstance(finding_count, int) or not 0 <= finding_count <= 100_000:
+    if (
+        isinstance(finding_count, bool)
+        or not isinstance(finding_count, int)
+        or not 0 <= finding_count <= 100_000
+    ):
         raise ValueError("Audit result has an invalid finding count")
     if verification_status not in allowed_verification_statuses:
         raise ValueError("Audit result has an unsupported verification status")
@@ -242,22 +294,32 @@ def attach_audit_to_run_report(
     if not isinstance(audits, list):
         raise ValueError("Run report artifacts.audits must be a list")
     # Idempotent for the same proposal revision and audit timestamp.
-    if any(isinstance(item, dict) and item.get("proposal_sha256") == compact["proposal_sha256"]
-           and item.get("audited_at") == compact["audited_at"] for item in audits):
-        return {"status": "unchanged", "path": target.relative_to(root).as_posix(),
-                "run_id": report["run_id"], "audit_count": len(audits),
-                "integrity": "valid"}
+    if any(
+        isinstance(item, dict)
+        and item.get("proposal_sha256") == compact["proposal_sha256"]
+        and item.get("audited_at") == compact["audited_at"]
+        for item in audits
+    ):
+        return {
+            "status": "unchanged",
+            "path": target.relative_to(root).as_posix(),
+            "run_id": report["run_id"],
+            "audit_count": len(audits),
+            "integrity": "valid",
+        }
 
     # Preserve a compact digest history before updating the current report digest.
     previous_digest = report["integrity"]["digest"]
     history = report.setdefault("integrity_history", [])
     if not isinstance(history, list):
         raise ValueError("Run report integrity_history must be a list")
-    history.append({
-        "digest": previous_digest,
-        "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "reason": "audit_attachment",
-    })
+    history.append(
+        {
+            "digest": previous_digest,
+            "recorded_at": datetime.now(UTC).isoformat(),
+            "reason": "audit_attachment",
+        }
+    )
     audits.append(compact)
 
     _refresh_integrity(report)
@@ -276,6 +338,11 @@ def attach_audit_to_run_report(
         except OSError:
             pass
         raise
-    return {"status": "updated", "path": target.relative_to(root).as_posix(),
-            "run_id": report["run_id"], "audit_count": len(audits),
-            "previous_digest": previous_digest, "current_digest": report["integrity"]["digest"]}
+    return {
+        "status": "updated",
+        "path": target.relative_to(root).as_posix(),
+        "run_id": report["run_id"],
+        "audit_count": len(audits),
+        "previous_digest": previous_digest,
+        "current_digest": report["integrity"]["digest"],
+    }

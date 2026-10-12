@@ -3,6 +3,7 @@
 This is lexical retrieval (not a vector database): it works offline, requires no
 embeddings or model tokens, preserves source paths, and never executes indexed content.
 """
+
 from __future__ import annotations
 
 import math
@@ -11,8 +12,37 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SUPPORTED_SUFFIXES = {".txt", ".md", ".rst", ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml", ".toml", ".html", ".css", ".sql", ".sh", ".log", ".csv"}
-EXCLUDED_PARTS = {".git", ".aurix", "__pycache__", ".pytest_cache", "node_modules", ".venv", "venv", "dist", "build"}
+SUPPORTED_SUFFIXES = {
+    ".txt",
+    ".md",
+    ".rst",
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".html",
+    ".css",
+    ".sql",
+    ".sh",
+    ".log",
+    ".csv",
+}
+EXCLUDED_PARTS = {
+    ".git",
+    ".aurix",
+    "__pycache__",
+    ".pytest_cache",
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+}
 WORD_RE = re.compile(r"[\w.-]{2,}", re.UNICODE)
 
 
@@ -43,6 +73,7 @@ def _chunks(text: str, size: int = 1800, overlap: int = 180) -> list[str]:
 
 class KnowledgeIndex:
     """Persistent SQLite index with a small BM25-like ranker."""
+
     def __init__(self, path: str | Path = ".aurix/knowledge.db") -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -55,15 +86,23 @@ class KnowledgeIndex:
             conn.execute("""CREATE TABLE IF NOT EXISTS indexed_sources (
                 root TEXT NOT NULL, source TEXT NOT NULL, fingerprint TEXT NOT NULL,
                 PRIMARY KEY(root, source))""")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_indexed_sources_root ON indexed_sources(root)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_indexed_sources_root ON indexed_sources(root)"
+            )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         return conn
 
-    def index_path(self, path: str | Path, *, max_file_bytes: int = 5_000_000,
-                   max_files: int = 20_000, chunk_chars: int = 1800) -> dict[str, Any]:
+    def index_path(
+        self,
+        path: str | Path,
+        *,
+        max_file_bytes: int = 5_000_000,
+        max_files: int = 20_000,
+        chunk_chars: int = 1800,
+    ) -> dict[str, Any]:
         """Incrementally index a file or directory and remove stale entries for that root.
 
         Unchanged files are not re-read into SQLite. Deletions are applied only after a
@@ -87,7 +126,11 @@ class KnowledgeIndex:
 
         for candidate in candidates:
             try:
-                if candidate.is_symlink() or not candidate.is_file() or candidate.suffix.lower() not in SUPPORTED_SUFFIXES:
+                if (
+                    candidate.is_symlink()
+                    or not candidate.is_file()
+                    or candidate.suffix.lower() not in SUPPORTED_SUFFIXES
+                ):
                     continue
                 rel_parts = candidate.relative_to(root if root.is_dir() else root.parent).parts
                 if any(part in EXCLUDED_PARTS for part in rel_parts):
@@ -144,7 +187,10 @@ class KnowledgeIndex:
                 ).fetchall()
                 stale = [row["source"] for row in tracked if row["source"] not in active_sources]
                 for source in stale:
-                    conn.execute("DELETE FROM indexed_sources WHERE root = ? AND source = ?", (root_key, source))
+                    conn.execute(
+                        "DELETE FROM indexed_sources WHERE root = ? AND source = ?",
+                        (root_key, source),
+                    )
                     other_owner = conn.execute(
                         "SELECT 1 FROM indexed_sources WHERE source = ? LIMIT 1", (source,)
                     ).fetchone()
@@ -195,7 +241,9 @@ class KnowledgeIndex:
         if not terms:
             return []
         with self._connect() as conn:
-            rows = conn.execute("SELECT id, source, chunk_no, content, terms FROM chunks").fetchall()
+            rows = conn.execute(
+                "SELECT id, source, chunk_no, content, terms FROM chunks"
+            ).fetchall()
         if not rows:
             return []
         n = len(rows)
@@ -213,15 +261,25 @@ class KnowledgeIndex:
                 freq = counts.get(term, 0)
                 if freq:
                     idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
-                    score += idf * (freq * 2.2) / (freq + 1.2 * (0.25 + 0.75 * len(doc_terms) / 300))
+                    score += (
+                        idf * (freq * 2.2) / (freq + 1.2 * (0.25 + 0.75 * len(doc_terms) / 300))
+                    )
             if score > 0:
                 scored.append((score, row))
         scored.sort(key=lambda pair: (-pair[0], pair[1]["source"], pair[1]["chunk_no"]))
-        return [{"source": row["source"], "chunk": row["chunk_no"] + 1,
-                 "score": round(score, 4), "content": row["content"][:max_chars]}
-                for score, row in scored[:limit]]
+        return [
+            {
+                "source": row["source"],
+                "chunk": row["chunk_no"] + 1,
+                "score": round(score, 4),
+                "content": row["content"][:max_chars],
+            }
+            for score, row in scored[:limit]
+        ]
 
     def stats(self) -> dict[str, int]:
         with self._connect() as conn:
-            row = conn.execute("SELECT COUNT(*) AS chunks, COUNT(DISTINCT source) AS files FROM chunks").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) AS chunks, COUNT(DISTINCT source) AS files FROM chunks"
+            ).fetchone()
         return {"files": int(row["files"]), "chunks": int(row["chunks"])}

@@ -1,4 +1,5 @@
 """Safe, bounded adapter for REA's static JavaScript/Electron analysis CLI."""
+
 from __future__ import annotations
 
 import json
@@ -30,7 +31,17 @@ def _rea_executable() -> str:
 
 def _child_environment() -> dict[str, str]:
     """Pass only basic runtime variables; never forward API keys or the full environment."""
-    allowed = ("PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR", "TMP", "TEMP", "LANG", "LC_ALL")
+    allowed = (
+        "PATH",
+        "HOME",
+        "USERPROFILE",
+        "SYSTEMROOT",
+        "WINDIR",
+        "TMP",
+        "TEMP",
+        "LANG",
+        "LC_ALL",
+    )
     return {key: os.environ[key] for key in allowed if key in os.environ}
 
 
@@ -57,7 +68,9 @@ def analyze_javascript_application(
     if target.is_symlink():
         raise PermissionError("REA does not analyze symlink targets")
     if not (target.is_dir() or (target.is_file() and target.suffix.lower() == ".asar")):
-        raise ValueError("REA static JavaScript analysis accepts an application directory or .asar file")
+        raise ValueError(
+            "REA static JavaScript analysis accepts an application directory or .asar file"
+        )
 
     timeout = max(1, min(int(timeout_seconds), MAX_TIMEOUT_SECONDS))
     executable = _rea_executable()
@@ -108,8 +121,18 @@ def analyze_javascript_application(
     return result
 
 
-REA_INVESTIGATION_COMMANDS = {"analyze", "search", "function", "decompile", "xrefs", "trace", "providers", "capabilities"}
+REA_INVESTIGATION_COMMANDS = {
+    "analyze",
+    "search",
+    "function",
+    "decompile",
+    "xrefs",
+    "trace",
+    "providers",
+    "capabilities",
+}
 _MAX_QUERY_CHARS = 500
+
 
 def investigate_with_rea(
     workspace: Path | str,
@@ -139,11 +162,15 @@ def investigate_with_rea(
             raise PermissionError("REA target must remain inside the workspace")
         target = safe_path(root, path)
         if not target.exists() or target.is_symlink() or not (target.is_file() or target.is_dir()):
-            raise ValueError("REA target must be an existing regular file or directory, not a symlink")
+            raise ValueError(
+                "REA target must be an existing regular file or directory, not a symlink"
+            )
         argv_tail = [command, str(target)]
         if command in {"search", "trace"}:
             if not isinstance(query, str) or not query.strip() or len(query) > _MAX_QUERY_CHARS:
-                raise ValueError(f"REA {command} requires a query of 1-{_MAX_QUERY_CHARS} characters")
+                raise ValueError(
+                    f"REA {command} requires a query of 1-{_MAX_QUERY_CHARS} characters"
+                )
             argv_tail.append(query.strip())
         elif command in {"function", "decompile", "xrefs"}:
             if not isinstance(query, str) or not query.strip() or len(query) > _MAX_QUERY_CHARS:
@@ -151,7 +178,12 @@ def investigate_with_rea(
             argv_tail.append(query.strip())
         if command in {"analyze", "search", "function", "decompile", "xrefs", "trace"}:
             if provider != "auto":
-                if not isinstance(provider, str) or not provider or len(provider) > 80 or not all(c.isalnum() or c in "-_" for c in provider):
+                if (
+                    not isinstance(provider, str)
+                    or not provider
+                    or len(provider) > 80
+                    or not all(c.isalnum() or c in "-_" for c in provider)
+                ):
                     raise ValueError("Invalid REA provider ID")
                 argv_tail.extend(["--provider", provider])
         argv_tail.append("--json")
@@ -160,18 +192,39 @@ def investigate_with_rea(
     argv = [executable, *argv_tail]
     try:
         completed = subprocess.run(
-            argv, cwd=root, env=_child_environment(), shell=False, check=False,
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+            argv,
+            cwd=root,
+            env=_child_environment(),
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        return {"status": "timeout", "tool": "rea", "command": command, "target": target_label,
-                "timeout_seconds": timeout, "stdout": str(exc.stdout or "")[-MAX_STDOUT_CHARS:],
-                "stderr": str(exc.stderr or "")[-MAX_STDERR_CHARS:], "target_executed": False}
+        return {
+            "status": "timeout",
+            "tool": "rea",
+            "command": command,
+            "target": target_label,
+            "timeout_seconds": timeout,
+            "stdout": str(exc.stdout or "")[-MAX_STDOUT_CHARS:],
+            "stderr": str(exc.stderr or "")[-MAX_STDERR_CHARS:],
+            "target_executed": False,
+        }
     stdout, stderr = completed.stdout, completed.stderr
-    result: dict[str, Any] = {"status": "completed" if completed.returncode == 0 else "failed",
-        "tool": "rea", "command": command, "target": target_label, "returncode": completed.returncode,
-        "target_executed": False, "stderr": stderr[-MAX_STDERR_CHARS:],
-        "output_truncated": len(stdout) > MAX_STDOUT_CHARS}
+    result: dict[str, Any] = {
+        "status": "completed" if completed.returncode == 0 else "failed",
+        "tool": "rea",
+        "command": command,
+        "target": target_label,
+        "returncode": completed.returncode,
+        "target_executed": False,
+        "stderr": stderr[-MAX_STDERR_CHARS:],
+        "output_truncated": len(stdout) > MAX_STDOUT_CHARS,
+    }
     try:
         result["evidence"] = json.loads(stdout[-MAX_STDOUT_CHARS:])
         result["output_format"] = "json"

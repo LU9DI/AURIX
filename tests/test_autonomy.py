@@ -7,13 +7,15 @@ from aurix.autonomy import AutonomousKernel, StudyQueue
 
 class FakeProvider:
     def __init__(self, response=None):
-        self.response = response or json.dumps({
-            "summary": "A concise note.",
-            "key_points": ["A point"],
-            "uncertainties": ["Needs independent verification"],
-            "follow_up_topics": ["Rust async cancellation", "Rust async cancellation safety"],
-            "sources": [],
-        })
+        self.response = response or json.dumps(
+            {
+                "summary": "A concise note.",
+                "key_points": ["A point"],
+                "uncertainties": ["Needs independent verification"],
+                "follow_up_topics": ["Rust async cancellation", "Rust async cancellation safety"],
+                "sources": [],
+            }
+        )
         self.calls = 0
 
     def generate(self, prompt, *, system=""):
@@ -53,7 +55,10 @@ def test_invalid_model_json_is_saved_as_review_candidate(tmp_path: Path):
     result = kernel.study_once()
     assert result["status"] == "candidate_created"
     from aurix.learning import LearningStore
-    records = LearningStore(tmp_path / ".aurix" / "learning.db").list_records(scope="autonomous-study")
+
+    records = LearningStore(tmp_path / ".aurix" / "learning.db").list_records(
+        scope="autonomous-study"
+    )
     assert len(records) == 1
     assert records[0]["status"] == "candidate"
     assert records[0]["consent_to_train"] is False
@@ -69,8 +74,9 @@ def test_empty_queue_does_not_call_provider(tmp_path: Path):
 def test_daemon_stops_after_bounded_cycles(tmp_path: Path):
     queue = StudyQueue(tmp_path / ".aurix" / "autonomy.db")
     queue.enqueue("Topic")
-    kernel = AutonomousKernel(FakeProvider(), tmp_path, min_interval_seconds=60,
-                              max_interval_seconds=60, max_cycles=1)
+    kernel = AutonomousKernel(
+        FakeProvider(), tmp_path, min_interval_seconds=60, max_interval_seconds=60, max_cycles=1
+    )
     result = asyncio.run(kernel.run())
     assert result["status"] == "stopped"
     assert result["cycles"] == 1
@@ -82,11 +88,21 @@ def test_study_persists_retrieved_source_separately_from_hypothesis(tmp_path: Pa
 
     queue = StudyQueue(tmp_path / ".aurix" / "autonomy.db")
     queue.enqueue("SQLite WAL")
-    provider = FakeProvider(json.dumps({"summary": "WAL separates readers and writers.",
-        "key_points": [], "uncertainties": ["Check official docs"], "follow_up_topics": [],
-        "sources": ["https://sqlite.org/wal.html"]}))
-    notes = ("SOURCE: https://sqlite.org/wal.html\nTITLE: Write-Ahead Logging\n"
-             "SEARCH SNIPPET: Official documentation\nPAGE EXTRACT: Readers and writers can proceed concurrently.\n")
+    provider = FakeProvider(
+        json.dumps(
+            {
+                "summary": "WAL separates readers and writers.",
+                "key_points": [],
+                "uncertainties": ["Check official docs"],
+                "follow_up_topics": [],
+                "sources": ["https://sqlite.org/wal.html"],
+            }
+        )
+    )
+    notes = (
+        "SOURCE: https://sqlite.org/wal.html\nTITLE: Write-Ahead Logging\n"
+        "SEARCH SNIPPET: Official documentation\nPAGE EXTRACT: Readers and writers can proceed concurrently.\n"
+    )
     kernel = AutonomousKernel(provider, tmp_path, research_adapter=lambda topic: notes)
     result = kernel.study_once()
     records = ResearchMemory(tmp_path / ".aurix" / "research_memory.db").list_records()
@@ -100,8 +116,13 @@ def test_study_uses_reviewed_memory_and_falls_back_after_research_error(tmp_path
     from aurix.research_memory import ResearchMemory
 
     memory = ResearchMemory(tmp_path / ".aurix" / "research_memory.db")
-    reviewed = memory.add(topic="SQLite WAL", kind="retrieved_evidence", title="WAL docs",
-                          content="SQLite WAL supports concurrent readers", url="https://sqlite.org/wal.html")
+    reviewed = memory.add(
+        topic="SQLite WAL",
+        kind="retrieved_evidence",
+        title="WAL docs",
+        content="SQLite WAL supports concurrent readers",
+        url="https://sqlite.org/wal.html",
+    )
     memory.review(reviewed["id"], decision="accepted")
     StudyQueue(tmp_path / ".aurix" / "autonomy.db").enqueue("SQLite WAL")
     calls = []
@@ -110,8 +131,10 @@ def test_study_uses_reviewed_memory_and_falls_back_after_research_error(tmp_path
         calls.append(query)
         if len(calls) == 1:
             raise RuntimeError("temporary search failure")
-        return ("SOURCE: https://sqlite.org/wal.html\nTITLE: WAL\n"
-                "SEARCH SNIPPET: SQLite WAL documentation\nPAGE EXTRACT: Readers and writers.\n")
+        return (
+            "SOURCE: https://sqlite.org/wal.html\nTITLE: WAL\n"
+            "SEARCH SNIPPET: SQLite WAL documentation\nPAGE EXTRACT: Readers and writers.\n"
+        )
 
     class CapturingProvider(FakeProvider):
         last_prompt = ""

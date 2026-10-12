@@ -3,6 +3,7 @@
 This evaluates a supplied candidate diff; it does not ask a model to create one.
 The fixture and patch must be operator-reviewed. Trusted mode is not an OS sandbox.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -11,7 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -53,8 +54,12 @@ def load_functional_suite(path: str | Path) -> tuple[Path, list[dict[str, Any]]]
         seen.add(case_id)
         if case.get("suite", "pytest") != "pytest":
             raise ValueError(f"Case {case_id}: only fixed pytest execution is supported")
-        if not isinstance(case.get("expect_baseline_passed"), bool) or not isinstance(case.get("expect_candidate_passed"), bool):
-            raise ValueError(f"Case {case_id}: expected baseline/candidate outcomes must be booleans")
+        if not isinstance(case.get("expect_baseline_passed"), bool) or not isinstance(
+            case.get("expect_candidate_passed"), bool
+        ):
+            raise ValueError(
+                f"Case {case_id}: expected baseline/candidate outcomes must be booleans"
+            )
         resolved: dict[str, str] = {}
         for field in ("fixture", "patch"):
             value = case.get(field)
@@ -62,7 +67,9 @@ def load_functional_suite(path: str | Path) -> tuple[Path, list[dict[str, Any]]]
                 raise ValueError(f"Case {case_id}: {field} must be a relative path")
             relative = Path(value)
             if relative.is_absolute() or ".." in relative.parts:
-                raise ValueError(f"Case {case_id}: {field} must be a relative path inside the suite directory")
+                raise ValueError(
+                    f"Case {case_id}: {field} must be a relative path inside the suite directory"
+                )
             raw = root / relative
             if raw.is_symlink():
                 raise ValueError(f"Case {case_id}: {field} must not be a symlink")
@@ -86,9 +93,21 @@ def load_functional_suite(path: str | Path) -> tuple[Path, list[dict[str, Any]]]
 
 
 def _check_patch_paths(patch: str, fixture: Path) -> None:
-    if any(line.startswith(("new file mode ", "deleted file mode ", "old mode ", "new mode ",
-                           "rename from ", "rename to ", "GIT binary patch", "Binary files "))
-           for line in patch.splitlines()):
+    if any(
+        line.startswith(
+            (
+                "new file mode ",
+                "deleted file mode ",
+                "old mode ",
+                "new mode ",
+                "rename from ",
+                "rename to ",
+                "GIT binary patch",
+                "Binary files ",
+            )
+        )
+        for line in patch.splitlines()
+    ):
         raise ValueError("Patch may only modify contents of existing regular files")
     old_paths: list[str] = []
     new_paths: list[str] = []
@@ -97,7 +116,9 @@ def _check_patch_paths(patch: str, fixture: Path) -> None:
             is_old = line.startswith("--- ")
             value = line[4:].split("\t", 1)[0].strip()
             if value == "/dev/null":
-                raise ValueError("Patch additions and deletions are unsupported; modify existing files only")
+                raise ValueError(
+                    "Patch additions and deletions are unsupported; modify existing files only"
+                )
             expected_prefix = "a/" if is_old else "b/"
             if not value.startswith(expected_prefix):
                 raise ValueError("Patch contains an unexpected file header")
@@ -107,7 +128,9 @@ def _check_patch_paths(patch: str, fixture: Path) -> None:
                 raise ValueError("Patch contains an unsafe file path")
             (old_paths if is_old else new_paths).append(str(pure))
     if not old_paths or old_paths != new_paths:
-        raise ValueError("Patch must contain matching old/new paths for existing-file modifications")
+        raise ValueError(
+            "Patch must contain matching old/new paths for existing-file modifications"
+        )
     for rel in set(old_paths):
         target = fixture.joinpath(*PurePosixPath(rel).parts)
         if not target.exists() or target.is_symlink() or not target.is_file():
@@ -128,12 +151,17 @@ def run_functional_benchmark(
     if isolation not in {"trusted", "docker"}:
         raise ValueError("Unsupported isolation mode")
     root, cases = load_functional_suite(suite_path)
-    normalized_cases = [{
-        "id": case["id"], "fixture": Path(case["fixture"]).relative_to(root).as_posix(),
-        "patch": Path(case["patch"]).relative_to(root).as_posix(), "suite": case["suite"],
-        "expect_baseline_passed": case["expect_baseline_passed"],
-        "expect_candidate_passed": case["expect_candidate_passed"],
-    } for case in cases]
+    normalized_cases = [
+        {
+            "id": case["id"],
+            "fixture": Path(case["fixture"]).relative_to(root).as_posix(),
+            "patch": Path(case["patch"]).relative_to(root).as_posix(),
+            "suite": case["suite"],
+            "expect_baseline_passed": case["expect_baseline_passed"],
+            "expect_candidate_passed": case["expect_candidate_passed"],
+        }
+        for case in cases
+    ]
     suite_payload = json.dumps(normalized_cases, sort_keys=True, separators=(",", ":")).encode()
     suite_digest = hashlib.sha256(suite_payload).hexdigest()
     results: list[dict[str, Any]] = []
@@ -147,50 +175,132 @@ def run_functional_benchmark(
             _check_patch_paths(patch, fixture)
             baseline_copy = temp_root / f"{case['id']}-baseline"
             candidate_copy = temp_root / f"{case['id']}-candidate"
-            shutil.copytree(fixture, baseline_copy, symlinks=False, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", ".venv", "venv"))
-            shutil.copytree(fixture, candidate_copy, symlinks=False, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", ".venv", "venv"))
+            shutil.copytree(
+                fixture,
+                baseline_copy,
+                symlinks=False,
+                ignore=shutil.ignore_patterns(
+                    ".git", "__pycache__", ".pytest_cache", ".venv", "venv"
+                ),
+            )
+            shutil.copytree(
+                fixture,
+                candidate_copy,
+                symlinks=False,
+                ignore=shutil.ignore_patterns(
+                    ".git", "__pycache__", ".pytest_cache", ".venv", "venv"
+                ),
+            )
             # Recheck after copying; no symlink should be present in the execution tree.
             if any(path.is_symlink() for path in candidate_copy.rglob("*")):
-                raise ValueError(f"Case {case['id']}: fixture contains symlinks; refusing execution")
-            baseline = run_test_suite(baseline_copy, "pytest", confirm=True, timeout_seconds=timeout_seconds,
-                                      isolation=isolation, sandbox_image=sandbox_image)
-            preflight = subprocess.run(["git", "apply", "--check", "--whitespace=error", "-"], cwd=candidate_copy,
-                                       input=patch, text=True, encoding="utf-8", errors="replace", capture_output=True,
-                                       timeout=min(max(1, timeout_seconds), 30), shell=False, check=False)
+                raise ValueError(
+                    f"Case {case['id']}: fixture contains symlinks; refusing execution"
+                )
+            baseline = run_test_suite(
+                baseline_copy,
+                "pytest",
+                confirm=True,
+                timeout_seconds=timeout_seconds,
+                isolation=isolation,
+                sandbox_image=sandbox_image,
+            )
+            preflight = subprocess.run(
+                ["git", "apply", "--check", "--whitespace=error", "-"],
+                cwd=candidate_copy,
+                input=patch,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=min(max(1, timeout_seconds), 30),
+                shell=False,
+                check=False,
+            )
             if preflight.returncode != 0:
-                results.append({"id": case["id"], "status": "invalid_patch", "passed": False,
-                                "baseline": baseline, "patch_error": preflight.stderr[-4000:]})
+                results.append(
+                    {
+                        "id": case["id"],
+                        "status": "invalid_patch",
+                        "passed": False,
+                        "baseline": baseline,
+                        "patch_error": preflight.stderr[-4000:],
+                    }
+                )
                 continue
-            applied = subprocess.run(["git", "apply", "--whitespace=error", "-"], cwd=candidate_copy,
-                                     input=patch, text=True, encoding="utf-8", errors="replace", capture_output=True,
-                                     timeout=min(max(1, timeout_seconds), 30), shell=False, check=False)
+            applied = subprocess.run(
+                ["git", "apply", "--whitespace=error", "-"],
+                cwd=candidate_copy,
+                input=patch,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=min(max(1, timeout_seconds), 30),
+                shell=False,
+                check=False,
+            )
             if applied.returncode != 0:
-                results.append({"id": case["id"], "status": "apply_failed", "passed": False,
-                                "baseline": baseline, "patch_error": applied.stderr[-4000:]})
+                results.append(
+                    {
+                        "id": case["id"],
+                        "status": "apply_failed",
+                        "passed": False,
+                        "baseline": baseline,
+                        "patch_error": applied.stderr[-4000:],
+                    }
+                )
                 continue
-            candidate = run_test_suite(candidate_copy, "pytest", confirm=True, timeout_seconds=timeout_seconds,
-                                       isolation=isolation, sandbox_image=sandbox_image)
+            candidate = run_test_suite(
+                candidate_copy,
+                "pytest",
+                confirm=True,
+                timeout_seconds=timeout_seconds,
+                isolation=isolation,
+                sandbox_image=sandbox_image,
+            )
             baseline_matches = baseline["passed"] is case["expect_baseline_passed"]
             candidate_matches = candidate["passed"] is case["expect_candidate_passed"]
-            intended_fix = (not case["expect_baseline_passed"] and case["expect_candidate_passed"]
-                            and not baseline["passed"] and candidate["passed"])
-            results.append({"id": case["id"], "status": "passed" if baseline_matches and candidate_matches else "failed",
-                            "passed": baseline_matches and candidate_matches, "baseline_matches_expectation": baseline_matches,
-                            "candidate_matches_expectation": candidate_matches, "demonstrated_fix": intended_fix,
-                            "baseline": baseline, "candidate": candidate,
-                            "patch_sha256": hashlib.sha256(patch.encode()).hexdigest()})
+            intended_fix = (
+                not case["expect_baseline_passed"]
+                and case["expect_candidate_passed"]
+                and not baseline["passed"]
+                and candidate["passed"]
+            )
+            results.append(
+                {
+                    "id": case["id"],
+                    "status": "passed" if baseline_matches and candidate_matches else "failed",
+                    "passed": baseline_matches and candidate_matches,
+                    "baseline_matches_expectation": baseline_matches,
+                    "candidate_matches_expectation": candidate_matches,
+                    "demonstrated_fix": intended_fix,
+                    "baseline": baseline,
+                    "candidate": candidate,
+                    "patch_sha256": hashlib.sha256(patch.encode()).hexdigest(),
+                }
+            )
     passed = sum(item["passed"] for item in results)
     return {
         "schema_version": 1,
-        "metadata": {"created_at": datetime.now(timezone.utc).isoformat(), "aurix_version": __version__,
-                      "python_version": __import__("platform").python_version(), "suite_sha256": suite_digest,
-                      "isolation": isolation, "sandbox_image": sandbox_image if isolation == "docker" else None},
-        "cases": len(cases), "passed": passed, "failed": len(cases) - passed,
+        "metadata": {
+            "created_at": datetime.now(UTC).isoformat(),
+            "aurix_version": __version__,
+            "python_version": __import__("platform").python_version(),
+            "suite_sha256": suite_digest,
+            "isolation": isolation,
+            "sandbox_image": sandbox_image if isolation == "docker" else None,
+        },
+        "cases": len(cases),
+        "passed": passed,
+        "failed": len(cases) - passed,
         "pass_rate": round(passed / len(cases), 4),
         "demonstrated_fixes": sum(bool(item.get("demonstrated_fix")) for item in results),
-        "duration_ms": round((time.perf_counter() - started_all) * 1000, 2), "results": results,
-        "limitations": ["Evaluates supplied patches, not autonomous patch generation.",
-                        "Passing tests do not prove semantic correctness beyond test coverage.",
-                        "Trusted mode is not an OS sandbox; use a reviewed Docker image for untrusted fixtures.",
-                        "Fixtures and patches must be reviewed before execution."],
+        "duration_ms": round((time.perf_counter() - started_all) * 1000, 2),
+        "results": results,
+        "limitations": [
+            "Evaluates supplied patches, not autonomous patch generation.",
+            "Passing tests do not prove semantic correctness beyond test coverage.",
+            "Trusted mode is not an OS sandbox; use a reviewed Docker image for untrusted fixtures.",
+            "Fixtures and patches must be reviewed before execution.",
+        ],
     }

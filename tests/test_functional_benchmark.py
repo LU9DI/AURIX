@@ -11,7 +11,8 @@ def _make_suite(tmp_path: Path) -> Path:
     fixture.mkdir(parents=True)
     (fixture / "calculator.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
     (fixture / "test_calculator.py").write_text(
-        "from calculator import add\n\ndef test_add():\n    assert add(2, 3) == 5\n", encoding="utf-8"
+        "from calculator import add\n\ndef test_add():\n    assert add(2, 3) == 5\n",
+        encoding="utf-8",
     )
     patch = tmp_path / "patches" / "fix.patch"
     patch.parent.mkdir()
@@ -20,10 +21,20 @@ def _make_suite(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     suite = tmp_path / "suite.json"
-    suite.write_text(json.dumps([{
-        "id": "add-bug", "fixture": "fixtures/add_bug", "patch": "patches/fix.patch",
-        "expect_baseline_passed": False, "expect_candidate_passed": True,
-    }]), encoding="utf-8")
+    suite.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "add-bug",
+                    "fixture": "fixtures/add_bug",
+                    "patch": "patches/fix.patch",
+                    "expect_baseline_passed": False,
+                    "expect_candidate_passed": True,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
     return suite
 
 

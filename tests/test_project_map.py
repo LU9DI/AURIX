@@ -1,7 +1,7 @@
 import json
 
-from aurix.tools.project_map import inspect_project
 from aurix.orchestrator import Orchestrator
+from aurix.tools.project_map import inspect_project
 
 
 class SequenceProvider:
@@ -18,7 +18,9 @@ def test_project_map_detects_ecosystem_tests_ci_and_script_names(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "tests").mkdir()
     (tmp_path / ".github" / "workflows").mkdir(parents=True)
-    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"test": "node dangerous.js", "build": "echo x"}}), encoding="utf-8")
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"test": "node dangerous.js", "build": "echo x"}}), encoding="utf-8"
+    )
     (tmp_path / "src" / "app.ts").write_text("export const x = 1", encoding="utf-8")
     (tmp_path / "tests" / "app.test.ts").write_text("", encoding="utf-8")
     (tmp_path / ".github" / "workflows" / "ci.yml").write_text("", encoding="utf-8")

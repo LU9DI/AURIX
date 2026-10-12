@@ -4,33 +4,43 @@ from aurix.research import SearxResearchAdapter, _assert_public_http_url, clean_
 
 
 def test_clean_html_removes_scripts_styles_and_tags():
-    result = clean_html('<html><style>bad css</style><script>secret()</script><main><h1>Title</h1><p>Hello <b>world</b>.</p></main></html>')
-    assert 'Title' in result
-    assert 'Hello world.' in result
-    assert 'bad css' not in result
-    assert 'secret()' not in result
+    result = clean_html(
+        "<html><style>bad css</style><script>secret()</script><main><h1>Title</h1><p>Hello <b>world</b>.</p></main></html>"
+    )
+    assert "Title" in result
+    assert "Hello world." in result
+    assert "bad css" not in result
+    assert "secret()" not in result
 
 
 def test_research_adapter_requires_absolute_http_endpoint():
     with pytest.raises(ValueError):
-        SearxResearchAdapter('searx.local')
+        SearxResearchAdapter("searx.local")
 
 
-@pytest.mark.parametrize('url', [
-    'file:///etc/passwd', 'http://localhost/admin', 'http://127.0.0.1:5432/',
-    'http://192.168.1.2/', 'http://user:pass@example.com/', 'http://service.internal/',
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "http://localhost/admin",
+        "http://127.0.0.1:5432/",
+        "http://192.168.1.2/",
+        "http://user:pass@example.com/",
+        "http://service.internal/",
+    ],
+)
 def test_rejects_non_public_research_targets(url):
     with pytest.raises(ValueError):
         _assert_public_http_url(url)
 
 
 def test_clean_html_has_output_bound():
-    assert len(clean_html('<p>' + ('x' * 1000) + '</p>', max_chars=120)) <= 120
+    assert len(clean_html("<p>" + ("x" * 1000) + "</p>", max_chars=120)) <= 120
 
 
 def test_limited_reader_caps_streamed_body():
     import httpx
+
     from aurix.research import _get_limited
 
     transport = httpx.MockTransport(lambda request: httpx.Response(200, content=b"abcdefghij"))
@@ -41,7 +51,8 @@ def test_limited_reader_caps_streamed_body():
 
 def test_missing_robots_file_is_allowed(monkeypatch):
     import httpx
-    import aurix.research as research
+
+    from aurix import research
 
     monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
     transport = httpx.MockTransport(lambda request: httpx.Response(404, content=b"missing"))
@@ -51,14 +62,15 @@ def test_missing_robots_file_is_allowed(monkeypatch):
 
 def test_robots_disallow_is_reported_without_crashing(monkeypatch):
     import json
-    import httpx
-    import aurix.research as research
+
+    from aurix import research
 
     monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
 
     class DummyClient:
         def __enter__(self):
             return self
+
         def __exit__(self, *args):
             return False
 
@@ -66,9 +78,21 @@ def test_robots_disallow_is_reported_without_crashing(monkeypatch):
 
     def fake_get_limited(client, url, **kwargs):
         if "/search?" in url:
-            return 200, {"content-type": "application/json"}, json.dumps({
-                "results": [{"url": "https://example.org/private", "title": "Private page", "content": "snippet"}]
-            }).encode()
+            return (
+                200,
+                {"content-type": "application/json"},
+                json.dumps(
+                    {
+                        "results": [
+                            {
+                                "url": "https://example.org/private",
+                                "title": "Private page",
+                                "content": "snippet",
+                            }
+                        ]
+                    }
+                ).encode(),
+            )
         if url.endswith("/robots.txt"):
             return 200, {"content-type": "text/plain"}, b"User-agent: *\nDisallow: /\n"
         raise AssertionError(f"Page should not be fetched when robots.txt disallows it: {url}")
@@ -81,15 +105,22 @@ def test_robots_disallow_is_reported_without_crashing(monkeypatch):
 
 def test_public_ip_pinning_transport_rejects_private_dns_answer(monkeypatch):
     import socket
+
     import httpx
-    import aurix.research as research
+
+    from aurix import research
 
     monkeypatch.setattr(
-        research.socket, "getaddrinfo",
+        research.socket,
+        "getaddrinfo",
         lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.8", 443))],
     )
     connect_calls = []
-    monkeypatch.setattr(research.socket, "create_connection", lambda *a, **k: connect_calls.append((a, k)))
+    monkeypatch.setattr(
+        research.socket, "create_connection", lambda *a, **k: connect_calls.append((a, k))
+    )
     with pytest.raises(ValueError, match="public IP"):
-        research.PublicIPPinningTransport().handle_request(httpx.Request("GET", "https://example.org/"))
+        research.PublicIPPinningTransport().handle_request(
+            httpx.Request("GET", "https://example.org/")
+        )
     assert connect_calls == []

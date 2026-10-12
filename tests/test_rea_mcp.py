@@ -1,6 +1,5 @@
 import json
 import queue
-import subprocess
 from io import StringIO
 
 import pytest
@@ -28,9 +27,19 @@ class _FakeStdin:
         request = json.loads(wire)
         method = request["method"]
         if method == "initialize":
-            result = {"protocolVersion": "2025-03-26", "capabilities": {}, "serverInfo": {"name": "rea"}}
+            result = {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "serverInfo": {"name": "rea"},
+            }
         elif method == "tools/list":
-            result = {"tools": [{"name": "open_binary"}, {"name": "binary_overview"}, {"name": "delete_file"}]}
+            result = {
+                "tools": [
+                    {"name": "open_binary"},
+                    {"name": "binary_overview"},
+                    {"name": "delete_file"},
+                ]
+            }
         elif method == "tools/call" and request["params"]["name"] == "open_binary":
             self.process.calls.append(request)
             result = {"content": [{"type": "text", "text": "opened"}]}
@@ -40,7 +49,9 @@ class _FakeStdin:
         else:
             result = {}
         if "id" in request:
-            self.process.messages.put(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}) + "\n")
+            self.process.messages.put(
+                json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}) + "\n"
+            )
 
     def flush(self):
         pass
@@ -131,7 +142,13 @@ def test_mcp_tool_is_available_to_orchestrator(monkeypatch, tmp_path):
     class Provider:
         def __init__(self):
             self.responses = [
-                json.dumps({"status": "tool_call", "tool": "rea_mcp_investigate", "arguments": {"path": "sample.bin"}}),
+                json.dumps(
+                    {
+                        "status": "tool_call",
+                        "tool": "rea_mcp_investigate",
+                        "arguments": {"path": "sample.bin"},
+                    }
+                ),
                 json.dumps({"status": "final", "message": "Inspected binary."}),
             ]
             self.prompts = []

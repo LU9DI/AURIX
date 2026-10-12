@@ -3,15 +3,15 @@
 This keeps the user's primary checkout unchanged, but test code is still not
 sandboxed from the operating system. Only use this for trusted repositories.
 """
+
 from __future__ import annotations
 
-import shutil
-import subprocess
-import tempfile
 import hashlib
 import json
 import platform
 import re
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -49,7 +49,11 @@ def verify_proposal(
 
     if audit_id is None:
         audit_id = uuid.uuid4().hex
-    if not isinstance(audit_id, str) or len(audit_id) != 32 or any(c not in "0123456789abcdef" for c in audit_id):
+    if (
+        not isinstance(audit_id, str)
+        or len(audit_id) != 32
+        or any(c not in "0123456789abcdef" for c in audit_id)
+    ):
         raise ValueError("audit_id must be a 32-character lowercase hexadecimal identifier")
     verification_id = uuid.uuid4().hex
     if target_state_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", target_state_sha256):
@@ -64,20 +68,37 @@ def verify_proposal(
     targets = _validate_patch(root, patch)
     requested_suite = suite
     test_paths: list[str] | None = None
-    selection = {"mode": "full_suite", "reason": "Explicit full suite requested" if suite == "pytest" else
-                 ("Explicit lint suite requested" if suite == "ruff" else "Automatic selection not yet evaluated"),
-                 "paths": [], "manifest_sha256": None}
+    selection = {
+        "mode": "full_suite",
+        "reason": "Explicit full suite requested"
+        if suite == "pytest"
+        else (
+            "Explicit lint suite requested"
+            if suite == "ruff"
+            else "Automatic selection not yet evaluated"
+        ),
+        "paths": [],
+        "manifest_sha256": None,
+    }
     test_map_digest: str | None = None
     if suite == "auto":
         suite = "pytest"
         manifest_path = root / ".aurix" / "test-map.json"
         try:
-            if manifest_path.is_symlink() or not manifest_path.is_file() or manifest_path.stat().st_size > 100_000:
+            if (
+                manifest_path.is_symlink()
+                or not manifest_path.is_file()
+                or manifest_path.stat().st_size > 100_000
+            ):
                 raise ValueError("No valid explicit test map")
             manifest_bytes = manifest_path.read_bytes()
             test_map_digest = hashlib.sha256(manifest_bytes).hexdigest()
             manifest = json.loads(manifest_bytes.decode("utf-8"))
-            mappings = manifest.get("mappings") if isinstance(manifest, dict) and manifest.get("version") == 1 else None
+            mappings = (
+                manifest.get("mappings")
+                if isinstance(manifest, dict) and manifest.get("version") == 1
+                else None
+            )
             if not isinstance(mappings, dict):
                 raise ValueError("Invalid test map schema")
             selected: set[str] = set()
@@ -86,21 +107,45 @@ def verify_proposal(
                 if not isinstance(mapped, list) or not mapped:
                     raise ValueError(f"No explicit test mapping for {target}")
                 for relative in mapped:
-                    if not isinstance(relative, str) or not relative or Path(relative).is_absolute() or ".." in Path(relative).parts or "\\" in relative:
+                    if (
+                        not isinstance(relative, str)
+                        or not relative
+                        or Path(relative).is_absolute()
+                        or ".." in Path(relative).parts
+                        or "\\" in relative
+                    ):
                         raise ValueError("Unsafe test-map path")
                     candidate = root / relative
-                    if candidate.is_symlink() or not candidate.is_file() or root not in candidate.resolve().parents:
+                    if (
+                        candidate.is_symlink()
+                        or not candidate.is_file()
+                        or root not in candidate.resolve().parents
+                    ):
                         raise ValueError(f"Mapped test is missing or unsafe: {relative}")
                     if not relative.startswith("tests/") or not relative.endswith(".py"):
                         raise ValueError(f"Mapped target is not a test file: {relative}")
                     selected.add(relative)
             if selected:
                 test_paths = sorted(selected)
-                selection = {"mode": "mapped_subset", "reason": "Every changed target has an explicit valid .aurix/test-map.json mapping", "paths": test_paths, "manifest_sha256": test_map_digest}
+                selection = {
+                    "mode": "mapped_subset",
+                    "reason": "Every changed target has an explicit valid .aurix/test-map.json mapping",
+                    "paths": test_paths,
+                    "manifest_sha256": test_map_digest,
+                }
             else:
-                selection = {"mode": "full_suite", "reason": "No mapped tests; conservative fallback", "paths": []}
+                selection = {
+                    "mode": "full_suite",
+                    "reason": "No mapped tests; conservative fallback",
+                    "paths": [],
+                }
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError, AttributeError) as exc:
-            selection = {"mode": "full_suite", "reason": f"Conservative fallback: {str(exc)[:180]}", "paths": [], "manifest_sha256": test_map_digest}
+            selection = {
+                "mode": "full_suite",
+                "reason": f"Conservative fallback: {str(exc)[:180]}",
+                "paths": [],
+                "manifest_sha256": test_map_digest,
+            }
 
     top = _git(root, ["rev-parse", "--show-toplevel"])
     if top.returncode != 0 or Path(top.stdout.strip()).resolve() != root:
@@ -113,7 +158,9 @@ def verify_proposal(
     if status.returncode != 0:
         raise RuntimeError(status.stderr.strip() or "Could not inspect Git status")
     if status.stdout.strip():
-        raise PermissionError("Git worktree has tracked changes; commit or stash them before verification")
+        raise PermissionError(
+            "Git worktree has tracked changes; commit or stash them before verification"
+        )
 
     if not isinstance(compare_baseline, bool):
         raise ValueError("compare_baseline must be a boolean")
@@ -122,23 +169,39 @@ def verify_proposal(
         worktree = Path(temp_parent) / "checkout"
         added = _git(root, ["worktree", "add", "--detach", str(worktree), "HEAD"])
         if added.returncode != 0:
-            raise RuntimeError(f"Could not create disposable Git worktree: {added.stderr.strip()[:500]}")
+            raise RuntimeError(
+                f"Could not create disposable Git worktree: {added.stderr.strip()[:500]}"
+            )
         try:
             baseline_result = None
             if compare_baseline:
                 baseline_result = run_test_suite(
-                    worktree, suite, confirm=True, timeout_seconds=timeout_seconds,
-                    isolation=isolation, sandbox_image=sandbox_image, test_paths=test_paths,
+                    worktree,
+                    suite,
+                    confirm=True,
+                    timeout_seconds=timeout_seconds,
+                    isolation=isolation,
+                    sandbox_image=sandbox_image,
+                    test_paths=test_paths,
                 )
             checked = _git(worktree, ["apply", "--check", "--whitespace=error", "-"], patch=patch)
             if checked.returncode != 0:
-                raise ValueError(f"Patch preflight failed in disposable worktree: {checked.stderr.strip()[:500]}")
+                raise ValueError(
+                    f"Patch preflight failed in disposable worktree: {checked.stderr.strip()[:500]}"
+                )
             applied = _git(worktree, ["apply", "--whitespace=error", "-"], patch=patch)
             if applied.returncode != 0:
-                raise RuntimeError(f"Could not apply patch in disposable worktree: {applied.stderr.strip()[:500]}")
+                raise RuntimeError(
+                    f"Could not apply patch in disposable worktree: {applied.stderr.strip()[:500]}"
+                )
             test_result = run_test_suite(
-                worktree, suite, confirm=True, timeout_seconds=timeout_seconds,
-                isolation=isolation, sandbox_image=sandbox_image, test_paths=test_paths,
+                worktree,
+                suite,
+                confirm=True,
+                timeout_seconds=timeout_seconds,
+                isolation=isolation,
+                sandbox_image=sandbox_image,
+                test_paths=test_paths,
             )
             if baseline_result is None:
                 regression_status = "not_compared"
@@ -153,12 +216,22 @@ def verify_proposal(
             # Bind test evidence to the exact proposal bytes and repository revision.
             if test_map_digest is not None:
                 manifest_path = root / ".aurix" / "test-map.json"
-                if manifest_path.is_symlink() or not manifest_path.is_file() or hashlib.sha256(manifest_path.read_bytes()).hexdigest() != test_map_digest:
-                    raise PermissionError("Test map changed during verification; refusing stale test evidence")
+                if (
+                    manifest_path.is_symlink()
+                    or not manifest_path.is_file()
+                    or hashlib.sha256(manifest_path.read_bytes()).hexdigest() != test_map_digest
+                ):
+                    raise PermissionError(
+                        "Test map changed during verification; refusing stale test evidence"
+                    )
             if hashlib.sha256(proposal.read_bytes()).hexdigest() != patch_digest:
-                raise PermissionError("Proposal changed during verification; refusing stale test evidence")
+                raise PermissionError(
+                    "Proposal changed during verification; refusing stale test evidence"
+                )
             if _git(root, ["rev-parse", "HEAD"]).stdout.strip() != base_commit:
-                raise PermissionError("Repository HEAD changed during verification; refusing stale evidence")
+                raise PermissionError(
+                    "Repository HEAD changed during verification; refusing stale evidence"
+                )
             evidence = {
                 "audit_id": audit_id,
                 "verification_id": verification_id,
@@ -171,7 +244,9 @@ def verify_proposal(
                 "test_selection": selection,
                 "isolation": isolation,
                 "sandbox_image": sandbox_image if isolation == "docker" else None,
-                "sandbox_image_id": (test_result.get("sandbox_image_id") if isolation == "docker" else None),
+                "sandbox_image_id": (
+                    test_result.get("sandbox_image_id") if isolation == "docker" else None
+                ),
                 "runtime_fingerprint": {
                     "python_version": platform.python_version(),
                     "python_implementation": platform.python_implementation(),
@@ -183,9 +258,14 @@ def verify_proposal(
                 "test_result": test_result,
                 "regression_status": regression_status,
             }
-            evidence_sha256 = hashlib.sha256(json.dumps(
-                evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-            ).encode("utf-8")).hexdigest()
+            evidence_sha256 = hashlib.sha256(
+                json.dumps(
+                    evidence,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            ).hexdigest()
             result = {
                 **evidence,
                 "status": "verified_pass" if test_result["passed"] else "verified_fail",
@@ -194,16 +274,25 @@ def verify_proposal(
                 "evidence_sha256": evidence_sha256,
                 "security_note": (
                     "Tests ran in Docker isolation; review the image and daemon trust boundary."
-                    if isolation == "docker" else
-                    "Tests ran in a disposable Git worktree, not an OS sandbox. "
+                    if isolation == "docker"
+                    else "Tests ran in a disposable Git worktree, not an OS sandbox. "
                     "Only verify patches from repositories you trust."
                 ),
             }
-            append_audit_event(root, "proposal_verified", proposal_id, {
-                "audit_id": audit_id, "verification_id": verification_id,
-                "suite": suite, "requested_suite": requested_suite, "status": result["status"],
-                "regression_status": regression_status, "isolation": isolation,
-            })
+            append_audit_event(
+                root,
+                "proposal_verified",
+                proposal_id,
+                {
+                    "audit_id": audit_id,
+                    "verification_id": verification_id,
+                    "suite": suite,
+                    "requested_suite": requested_suite,
+                    "status": result["status"],
+                    "regression_status": regression_status,
+                    "isolation": isolation,
+                },
+            )
             return result
         finally:
             removed = _git(root, ["worktree", "remove", "--force", str(worktree)])

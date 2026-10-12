@@ -18,12 +18,17 @@ class CountingProvider:
 
 def test_context_budget_compacts_long_prompt_and_keeps_edges():
     budget = ContextBudget(max_input_tokens=512, reserve_tokens=64)
-    prompt = "TASK: preserve this objective\n" + ("middle context " * 3000) + "LATEST EVIDENCE: keep this"
+    prompt = (
+        "TASK: preserve this objective\n"
+        + ("middle context " * 3000)
+        + "LATEST EVIDENCE: keep this"
+    )
     fitted, compacted = budget.fit(prompt)
     assert compacted
     assert "TASK: preserve this objective" in fitted
     assert "LATEST EVIDENCE: keep this" in fitted
     from aurix.telemetry import estimate_tokens
+
     assert estimate_tokens(fitted) <= budget.usable_tokens
 
 

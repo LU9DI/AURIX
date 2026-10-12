@@ -1,5 +1,7 @@
 import json
+
 import pytest
+
 from aurix.evaluation.benchmark import load_cases, run_benchmark
 from aurix.telemetry import JSONLTelemetry
 
@@ -12,7 +14,10 @@ class FakeProvider:
 def test_benchmark_checks_required_terms(tmp_path):
     cases = [{"id": "test-first", "task": "What first?", "must_contain": ["test", "code"]}]
     from aurix.orchestrator import Orchestrator
-    report = run_benchmark(Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "trace.jsonl")), cases)
+
+    report = run_benchmark(
+        Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "trace.jsonl")), cases
+    )
     assert report["cases"] == 1
     assert report["passed"] == 1
     assert report["pass_rate"] == 1.0
@@ -27,16 +32,21 @@ def test_benchmark_rejects_empty_file(tmp_path):
 
 def test_benchmark_checks_status_steps_and_text_exclusions(tmp_path):
     from aurix.orchestrator import Orchestrator
-    cases = [{
-        "id": "guardrails",
-        "task": "What first?",
-        "must_contain": ["test"],
-        "must_not_contain": ["deploy immediately"],
-        "expected_status": "completed",
-        "min_steps": 1,
-        "max_steps": 1,
-    }]
-    report = run_benchmark(Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "trace.jsonl")), cases)
+
+    cases = [
+        {
+            "id": "guardrails",
+            "task": "What first?",
+            "must_contain": ["test"],
+            "must_not_contain": ["deploy immediately"],
+            "expected_status": "completed",
+            "min_steps": 1,
+            "max_steps": 1,
+        }
+    ]
+    report = run_benchmark(
+        Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "trace.jsonl")), cases
+    )
     item = report["results"][0]
     assert report["schema_version"] == 5
     assert item["passed"] is True
@@ -55,12 +65,17 @@ def test_benchmark_checks_status_steps_and_text_exclusions(tmp_path):
 
 def test_benchmark_fails_missing_required_tool_and_forbidden_phrase(tmp_path):
     from aurix.orchestrator import Orchestrator
-    cases = [{
-        "task": "What first?",
-        "required_tools": ["inspect_project"],
-        "must_not_contain": ["test"],
-    }]
-    report = run_benchmark(Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "trace.jsonl")), cases)
+
+    cases = [
+        {
+            "task": "What first?",
+            "required_tools": ["inspect_project"],
+            "must_not_contain": ["test"],
+        }
+    ]
+    report = run_benchmark(
+        Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "trace.jsonl")), cases
+    )
     item = report["results"][0]
     assert item["passed"] is False
     assert item["missing_tools"] == ["inspect_project"]
@@ -74,9 +89,13 @@ def test_load_cases_validates_step_bounds_and_duplicate_ids(tmp_path):
         load_cases(path)
 
     from aurix.orchestrator import Orchestrator
+
     duplicate = [{"id": "same", "task": "one"}, {"id": "same", "task": "two"}]
     with pytest.raises(ValueError, match="Duplicate"):
-        run_benchmark(Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "trace2.jsonl")), duplicate)
+        run_benchmark(
+            Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "trace2.jsonl")),
+            duplicate,
+        )
 
 
 def test_load_cases_rejects_malformed_json(tmp_path):
@@ -121,7 +140,10 @@ def test_benchmark_repetitions_reports_aggregate_stability(tmp_path):
 
 def test_benchmark_repetitions_validated(tmp_path):
     from aurix.orchestrator import Orchestrator
-    orchestrator = Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "bad-reps.jsonl"))
+
+    orchestrator = Orchestrator(
+        FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "bad-reps.jsonl")
+    )
     with pytest.raises(ValueError, match="between 1 and 10"):
         run_benchmark(orchestrator, [{"task": "task"}], repetitions=0)
     with pytest.raises(ValueError, match="between 1 and 10"):
@@ -132,6 +154,7 @@ def test_benchmark_repetitions_validated(tmp_path):
 
 def test_benchmark_report_has_reproducibility_metadata(tmp_path):
     from aurix.orchestrator import Orchestrator
+
     cases = [{"id": "same-suite", "task": "What first?", "must_contain": ["test"]}]
     report = run_benchmark(
         Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "meta.jsonl")), cases
@@ -170,21 +193,28 @@ def test_compare_reports_calculates_descriptive_deltas(tmp_path):
 def test_compare_reports_rejects_different_suites(tmp_path):
     from aurix.evaluation.benchmark import compare_reports
     from aurix.orchestrator import Orchestrator
+
     orchestrator = Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "suite.jsonl"))
     one = run_benchmark(orchestrator, [{"id": "one", "task": "task one"}])
     two = run_benchmark(orchestrator, [{"id": "two", "task": "task two"}])
     with pytest.raises(ValueError, match="different benchmark suites"):
         compare_reports(two, one)
 
+
 def test_compare_reports_rejects_different_repetitions(tmp_path):
     from aurix.evaluation.benchmark import compare_reports
     from aurix.orchestrator import Orchestrator
+
     cases = [{"id": "one", "task": "task one"}]
     one = run_benchmark(
-        Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "one.jsonl")), cases, repetitions=1
+        Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "one.jsonl")),
+        cases,
+        repetitions=1,
     )
     two = run_benchmark(
-        Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "two.jsonl")), cases, repetitions=2
+        Orchestrator(FakeProvider(), telemetry=JSONLTelemetry(tmp_path / "two.jsonl")),
+        cases,
+        repetitions=2,
     )
     with pytest.raises(ValueError, match="different repetition counts"):
         compare_reports(two, one)
@@ -192,6 +222,7 @@ def test_compare_reports_rejects_different_repetitions(tmp_path):
 
 def test_benchmark_can_require_patch_and_successful_verification():
     from types import SimpleNamespace
+
     from aurix.evaluation.benchmark import run_benchmark
 
     class TraceOrchestrator:
@@ -199,20 +230,33 @@ def test_benchmark_can_require_patch_and_successful_verification():
 
         def run(self, task, context=""):
             return SimpleNamespace(
-                message="Patch verified successfully.", status="completed", steps=2,
+                message="Patch verified successfully.",
+                status="completed",
+                steps=2,
                 trace=[
                     {"step": 1, "tool": "propose_patch", "proposal_id": "abcdef123456"},
-                    {"step": 2, "tool": "verify_proposal", "proposal_id": "abcdef123456",
-                     "verified_proposal": True, "verification_passed": True,
-                     "regression_status": "clean"},
+                    {
+                        "step": 2,
+                        "tool": "verify_proposal",
+                        "proposal_id": "abcdef123456",
+                        "verified_proposal": True,
+                        "verification_passed": True,
+                        "regression_status": "clean",
+                    },
                 ],
             )
 
-    report = run_benchmark(TraceOrchestrator(), [{
-        "task": "Fix the bug", "require_patch_proposal": True,
-        "require_successful_verification": True,
-        "expected_regression_statuses": ["clean"],
-    }])
+    report = run_benchmark(
+        TraceOrchestrator(),
+        [
+            {
+                "task": "Fix the bug",
+                "require_patch_proposal": True,
+                "require_successful_verification": True,
+                "expected_regression_statuses": ["clean"],
+            }
+        ],
+    )
     result = report["results"][0]
     assert report["schema_version"] == 5
     assert result["passed"] is True
@@ -223,6 +267,7 @@ def test_benchmark_can_require_patch_and_successful_verification():
 
 def test_benchmark_fails_when_required_patch_verification_missing():
     from types import SimpleNamespace
+
     from aurix.evaluation.benchmark import run_benchmark
 
     class TraceOrchestrator:
@@ -231,11 +276,17 @@ def test_benchmark_fails_when_required_patch_verification_missing():
         def run(self, task, context=""):
             return SimpleNamespace(message="Done", status="completed", steps=1, trace=[])
 
-    report = run_benchmark(TraceOrchestrator(), [{
-        "task": "Fix the bug", "require_patch_proposal": True,
-        "require_successful_verification": True,
-        "expected_regression_statuses": ["clean"],
-    }])
+    report = run_benchmark(
+        TraceOrchestrator(),
+        [
+            {
+                "task": "Fix the bug",
+                "require_patch_proposal": True,
+                "require_successful_verification": True,
+                "expected_regression_statuses": ["clean"],
+            }
+        ],
+    )
     result = report["results"][0]
     assert result["passed"] is False
     assert result["checks"]["patch_proposal"] is False
@@ -244,11 +295,13 @@ def test_benchmark_fails_when_required_patch_verification_missing():
 
 
 def test_benchmark_rejects_non_boolean_evidence_requirements():
-    from aurix.evaluation.benchmark import run_benchmark
     from types import SimpleNamespace
+
+    from aurix.evaluation.benchmark import run_benchmark
 
     class TraceOrchestrator:
         provider = FakeProvider()
+
         def run(self, task, context=""):
             return SimpleNamespace(message="ok", status="completed", steps=1, trace=[])
 

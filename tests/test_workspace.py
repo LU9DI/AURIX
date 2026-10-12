@@ -1,5 +1,6 @@
 import pytest
-from aurix.tools.workspace import safe_path, read_text
+
+from aurix.tools.workspace import read_text, safe_path
 
 
 def test_safe_path_rejects_escape(tmp_path):
@@ -16,6 +17,7 @@ def test_read_text(tmp_path):
 
 def test_context_reads_source_but_skips_environment_secrets(tmp_path):
     from aurix.tools.workspace import build_workspace_context
+
     (tmp_path / "README.md").write_text("Project overview", encoding="utf-8")
     (tmp_path / ".env").write_text("API_KEY=do-not-leak", encoding="utf-8")
     (tmp_path / "main.py").write_text("print('hello')", encoding="utf-8")
@@ -27,6 +29,7 @@ def test_context_reads_source_but_skips_environment_secrets(tmp_path):
 
 def test_context_is_bounded(tmp_path):
     from aurix.tools.workspace import build_workspace_context
+
     (tmp_path / "README.md").write_text("x" * 10000, encoding="utf-8")
     context = build_workspace_context(tmp_path, max_chars=500)
     assert len(context) <= 600
@@ -34,6 +37,7 @@ def test_context_is_bounded(tmp_path):
 
 def test_read_text_rejects_sensitive_files(tmp_path):
     from aurix.tools.workspace import read_text
+
     (tmp_path / "credentials.json").write_text('{"token":"secret"}', encoding="utf-8")
     with pytest.raises(PermissionError):
         read_text(tmp_path, "credentials.json")
@@ -41,6 +45,7 @@ def test_read_text_rejects_sensitive_files(tmp_path):
 
 def test_search_text_is_case_insensitive_and_bounded(tmp_path):
     from aurix.tools.workspace import search_text
+
     (tmp_path / "main.py").write_text("Alpha\nbeta alpha\n", encoding="utf-8")
     (tmp_path / ".env").write_text("alpha=secret", encoding="utf-8")
     matches = search_text(tmp_path, "ALPHA", limit=1)
@@ -62,6 +67,7 @@ def test_safe_path_rejects_symlink_components(tmp_path):
 
 def test_read_text_lines_returns_numbered_targeted_range(tmp_path):
     from aurix.tools.workspace import read_text_lines
+
     (tmp_path / "module.py").write_text("a\nb\nc\nd\n", encoding="utf-8")
     result = read_text_lines(tmp_path, "module.py", start_line=2, end_line=3)
     assert result["content"] == "2: b\n3: c"
@@ -71,6 +77,7 @@ def test_read_text_lines_returns_numbered_targeted_range(tmp_path):
 
 def test_read_text_lines_rejects_invalid_ranges_and_large_requests(tmp_path):
     from aurix.tools.workspace import read_text_lines
+
     (tmp_path / "module.py").write_text("x\n" * 600, encoding="utf-8")
     with pytest.raises(ValueError):
         read_text_lines(tmp_path, "module.py", start_line=0)

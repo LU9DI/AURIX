@@ -17,10 +17,20 @@ def test_parse_research_blocks_preserves_provenance_and_bounds():
 
 def test_discovery_dedup_and_review_promotion(tmp_path: Path):
     memory = ResearchMemory(tmp_path / "research.db")
-    first = memory.add(topic="SQLite WAL", kind="retrieved_evidence", title="Docs",
-                       url="https://example.org/wal", content="WAL allows readers and writers to coexist.")
-    duplicate = memory.add(topic="Other phrasing", kind="retrieved_evidence", title="Docs copy",
-                           url="https://example.org/wal", content="WAL allows readers and writers to coexist.")
+    first = memory.add(
+        topic="SQLite WAL",
+        kind="retrieved_evidence",
+        title="Docs",
+        url="https://example.org/wal",
+        content="WAL allows readers and writers to coexist.",
+    )
+    duplicate = memory.add(
+        topic="Other phrasing",
+        kind="retrieved_evidence",
+        title="Docs copy",
+        url="https://example.org/wal",
+        content="WAL allows readers and writers to coexist.",
+    )
     assert first["id"] == duplicate["id"]
     assert first["status"] == "candidate"
     assert first["kind"] == "retrieved_evidence"
@@ -33,8 +43,13 @@ def test_discovery_dedup_and_review_promotion(tmp_path: Path):
 
 def test_hypothesis_never_auto_promoted_and_invalid_url_removed(tmp_path: Path):
     memory = ResearchMemory(tmp_path / "research.db")
-    item = memory.add(topic="Topic", kind="model_hypothesis", title="Generated", url="file:///secret",
-                      content="Needs independent verification.")
+    item = memory.add(
+        topic="Topic",
+        kind="model_hypothesis",
+        title="Generated",
+        url="file:///secret",
+        content="Needs independent verification.",
+    )
     assert item["url"] is None
     assert item["kind"] == "model_hypothesis"
     assert item["status"] == "candidate"
@@ -42,7 +57,9 @@ def test_hypothesis_never_auto_promoted_and_invalid_url_removed(tmp_path: Path):
 
 def test_review_requires_explicit_valid_decision(tmp_path: Path):
     memory = ResearchMemory(tmp_path / "research.db")
-    item = memory.add(topic="Topic", kind="model_hypothesis", title="Generated", content="A hypothesis.")
+    item = memory.add(
+        topic="Topic", kind="model_hypothesis", title="Generated", content="A hypothesis."
+    )
     try:
         memory.review(item["id"], decision="validated")
     except ValueError:
@@ -53,8 +70,19 @@ def test_review_requires_explicit_valid_decision(tmp_path: Path):
 
 def test_search_relevant_excludes_unreviewed_candidates_by_default(tmp_path):
     memory = ResearchMemory(tmp_path / "research.db")
-    candidate = memory.add(topic="SQLite WAL", kind="model_hypothesis", title="WAL", content="SQLite WAL improves reader writer concurrency")
-    accepted = memory.add(topic="SQLite WAL", kind="retrieved_evidence", title="Official WAL docs", content="SQLite WAL allows readers and writers concurrently", url="https://sqlite.org/wal.html")
+    candidate = memory.add(
+        topic="SQLite WAL",
+        kind="model_hypothesis",
+        title="WAL",
+        content="SQLite WAL improves reader writer concurrency",
+    )
+    accepted = memory.add(
+        topic="SQLite WAL",
+        kind="retrieved_evidence",
+        title="Official WAL docs",
+        content="SQLite WAL allows readers and writers concurrently",
+        url="https://sqlite.org/wal.html",
+    )
     assert memory.review(accepted["id"], decision="accepted")
     results = memory.search_relevant("SQLite WAL readers writers")
     assert [row["id"] for row in results] == [accepted["id"]]

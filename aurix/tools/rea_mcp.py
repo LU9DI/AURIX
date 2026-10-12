@@ -1,4 +1,5 @@
 """Bounded stdio MCP client for REA's read-only native investigation workflow."""
+
 from __future__ import annotations
 
 import json
@@ -137,7 +138,12 @@ def investigate_binary_with_rea_mcp(
         raise ValueError("REA MCP requires a non-empty workspace-relative target")
     if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
         raise PermissionError("REA MCP target must be inside the configured workspace")
-    if not isinstance(provider, str) or not provider or len(provider) > 80 or not all(c.isalnum() or c in "-_" for c in provider):
+    if (
+        not isinstance(provider, str)
+        or not provider
+        or len(provider) > 80
+        or not all(c.isalnum() or c in "-_" for c in provider)
+    ):
         raise ValueError("Invalid REA provider ID")
     root = Path(workspace).expanduser().resolve(strict=True)
     target = safe_path(root, relative_path)
@@ -148,27 +154,52 @@ def investigate_binary_with_rea_mcp(
     timeout = max(1, min(timeout_seconds, MAX_MCP_TIMEOUT_SECONDS))
     executable = _rea_executable()
     process = subprocess.Popen(
-        [executable, "mcp"], cwd=root, env=_child_environment(), shell=False,
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding="utf-8", errors="replace", bufsize=1,
+        [executable, "mcp"],
+        cwd=root,
+        env=_child_environment(),
+        shell=False,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
     )
     client = _StdioMCP(process, timeout)
     try:
-        initialized = client.request("initialize", {
-            "protocolVersion": "2025-03-26", "capabilities": {},
-            "clientInfo": {"name": "aurix", "version": "0.28.0"},
-        })
+        initialized = client.request(
+            "initialize",
+            {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "aurix", "version": "0.28.0"},
+            },
+        )
         client.notify("notifications/initialized")
         catalog = client.request("tools/list")
         tools = catalog.get("tools")
         if not isinstance(tools, list):
             raise ValueError("REA MCP tools/list response did not contain a tool catalog")
-        by_name = {item.get("name"): item for item in tools if isinstance(item, dict) and isinstance(item.get("name"), str)}
+        by_name = {
+            item.get("name"): item
+            for item in tools
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        }
         if "open_binary" not in by_name or "binary_overview" not in by_name:
-            raise RuntimeError("This REA MCP catalog does not expose open_binary and binary_overview")
-        opened = client.request("tools/call", {"name": "open_binary", "arguments": {
-            "path": str(target), "provider_id": provider,
-        }})
+            raise RuntimeError(
+                "This REA MCP catalog does not expose open_binary and binary_overview"
+            )
+        opened = client.request(
+            "tools/call",
+            {
+                "name": "open_binary",
+                "arguments": {
+                    "path": str(target),
+                    "provider_id": provider,
+                },
+            },
+        )
         if opened.get("isError") is True:
             raise RuntimeError("REA MCP open_binary returned an error result")
         overview = client.request("tools/call", {"name": "binary_overview", "arguments": {}})
@@ -176,15 +207,27 @@ def investigate_binary_with_rea_mcp(
             raise RuntimeError("REA MCP binary_overview returned an error result")
         payload = json.dumps({"opened": opened, "overview": overview}, ensure_ascii=False)
         return {
-            "status": "completed", "tool": "rea_mcp", "target": target.relative_to(root).as_posix(),
-            "provider": provider, "protocol_version": initialized.get("protocolVersion"),
-            "catalog_tool_count": len(tools), "evidence": payload[:MAX_STDOUT_CHARS],
+            "status": "completed",
+            "tool": "rea_mcp",
+            "target": target.relative_to(root).as_posix(),
+            "provider": provider,
+            "protocol_version": initialized.get("protocolVersion"),
+            "catalog_tool_count": len(tools),
+            "evidence": payload[:MAX_STDOUT_CHARS],
             "evidence_truncated": len(payload) > MAX_STDOUT_CHARS,
-            "target_executed": False, "transport": "stdio-jsonrpc",
+            "target_executed": False,
+            "transport": "stdio-jsonrpc",
         }
     except TimeoutError as exc:
-        return {"status": "timeout", "tool": "rea_mcp", "target": target.relative_to(root).as_posix(),
-                "timeout_seconds": timeout, "message": str(exc)[:500], "stderr": client.stderr,
-                "target_executed": False, "transport": "stdio-jsonrpc"}
+        return {
+            "status": "timeout",
+            "tool": "rea_mcp",
+            "target": target.relative_to(root).as_posix(),
+            "timeout_seconds": timeout,
+            "message": str(exc)[:500],
+            "stderr": client.stderr,
+            "target_executed": False,
+            "transport": "stdio-jsonrpc",
+        }
     finally:
         client.close()

@@ -1,4 +1,5 @@
 """Bounded lexical and optional embedding-assisted memory retrieval."""
+
 from __future__ import annotations
 
 import math
@@ -111,7 +112,9 @@ def retrieve_memories(
             doc_vector = _vector(embedder.embed(content), label="document")
             semantic_score = _cosine(query_vector, doc_vector)
             normalized_lexical_score = min(1.0, lexical_score / 1.25)
-            score = lexical_weight * normalized_lexical_score + (1.0 - lexical_weight) * semantic_score
+            score = (
+                lexical_weight * normalized_lexical_score + (1.0 - lexical_weight) * semantic_score
+            )
             item["semantic_score"] = round(semantic_score, 4)
             item["retrieval_mode"] = "hybrid"
 

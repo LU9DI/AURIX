@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from aurix.documents import analyze_document, _chunks
+from aurix.documents import _chunks, analyze_document
 
 
 class FakeProvider:

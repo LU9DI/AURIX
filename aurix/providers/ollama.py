@@ -1,4 +1,5 @@
 import os
+
 import httpx
 
 
@@ -14,16 +15,22 @@ class OllamaProvider:
 
     def __init__(self, model: str | None = None, base_url: str | None = None) -> None:
         self.model = model or os.getenv("AURIX_MODEL", "qwen2.5-coder:7b")
-        self.base_url = (base_url or os.getenv("AURIX_BASE_URL", "http://localhost:11434")).rstrip("/")
+        self.base_url = (base_url or os.getenv("AURIX_BASE_URL", "http://localhost:11434")).rstrip(
+            "/"
+        )
 
     def generate(self, prompt: str, *, system: str = "") -> str:
-        messages = ([{"role": "system", "content": system}] if system else [])
+        messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": prompt})
         with httpx.Client(timeout=httpx.Timeout(120.0, connect=5.0)) as client:
             response = client.post(
                 f"{self.base_url}/api/chat",
-                json={"model": self.model, "messages": messages, "stream": False,
-                      "options": {"num_predict": max(1, min(_output_limit(), 32768))}},
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {"num_predict": max(1, min(_output_limit(), 32768))},
+                },
             )
             response.raise_for_status()
             payload = response.json()

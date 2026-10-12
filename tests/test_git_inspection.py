@@ -3,8 +3,8 @@ import subprocess
 
 import pytest
 
-from aurix.tools.git_inspection import git_diff, git_status
 from aurix.orchestrator import Orchestrator
+from aurix.tools.git_inspection import git_diff, git_status
 
 
 def _git(cwd, *args):

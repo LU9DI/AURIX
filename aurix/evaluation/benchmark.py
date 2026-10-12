@@ -5,7 +5,7 @@ import json
 import platform
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,23 +13,39 @@ from aurix import __version__
 from aurix.orchestrator import Orchestrator
 from aurix.telemetry import estimate_tokens
 
-_STRING_LIST_FIELDS = ("must_contain", "must_not_contain", "required_tools", "forbidden_tools", "expected_regression_statuses")
+_STRING_LIST_FIELDS = (
+    "must_contain",
+    "must_not_contain",
+    "required_tools",
+    "forbidden_tools",
+    "expected_regression_statuses",
+)
 _MAX_REPETITIONS = 10
 
 
 def _validate_case(case: Any, index: int) -> dict[str, Any]:
-    if not isinstance(case, dict) or not isinstance(case.get("task"), str) or not case["task"].strip():
+    if (
+        not isinstance(case, dict)
+        or not isinstance(case.get("task"), str)
+        or not case["task"].strip()
+    ):
         raise ValueError(f"Benchmark case {index} requires a non-empty task")
     for field in _STRING_LIST_FIELDS:
         value = case.get(field, [])
-        if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) and item.strip() for item in value
+        ):
             raise ValueError(f"Benchmark case {index}: {field} must be a list of non-empty strings")
     for field in ("min_steps", "max_steps"):
-        if field in case and (isinstance(case[field], bool) or not isinstance(case[field], int) or case[field] < 0):
+        if field in case and (
+            isinstance(case[field], bool) or not isinstance(case[field], int) or case[field] < 0
+        ):
             raise ValueError(f"Benchmark case {index}: {field} must be a non-negative integer")
     if "min_steps" in case and "max_steps" in case and case["min_steps"] > case["max_steps"]:
         raise ValueError(f"Benchmark case {index}: min_steps cannot exceed max_steps")
-    if "expected_status" in case and (not isinstance(case["expected_status"], str) or not case["expected_status"].strip()):
+    if "expected_status" in case and (
+        not isinstance(case["expected_status"], str) or not case["expected_status"].strip()
+    ):
         raise ValueError(f"Benchmark case {index}: expected_status must be a non-empty string")
     for field in ("require_patch_proposal", "require_successful_verification"):
         if field in case and not isinstance(case[field], bool):
@@ -53,7 +69,10 @@ def load_cases(path: str | Path) -> list[dict[str, Any]]:
 
 
 def run_benchmark(
-    orchestrator: Orchestrator, cases: list[dict[str, Any]], *, repetitions: int = 1,
+    orchestrator: Orchestrator,
+    cases: list[dict[str, Any]],
+    *,
+    repetitions: int = 1,
 ) -> dict[str, Any]:
     """Run acceptance checks repeatedly and report stability/latency aggregates.
 
@@ -62,14 +81,20 @@ def run_benchmark(
     """
     if not isinstance(cases, list) or not cases:
         raise ValueError("Benchmark cases must be a non-empty list")
-    if isinstance(repetitions, bool) or not isinstance(repetitions, int) or not 1 <= repetitions <= _MAX_REPETITIONS:
+    if (
+        isinstance(repetitions, bool)
+        or not isinstance(repetitions, int)
+        or not 1 <= repetitions <= _MAX_REPETITIONS
+    ):
         raise ValueError(f"repetitions must be an integer between 1 and {_MAX_REPETITIONS}")
     validated = [_validate_case(case, index) for index, case in enumerate(cases)]
     case_ids = [case.get("id", f"case-{index + 1}") for index, case in enumerate(validated)]
     if len(set(case_ids)) != len(case_ids):
         raise ValueError("Duplicate benchmark case id")
 
-    suite_bytes = json.dumps(validated, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    suite_bytes = json.dumps(
+        validated, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
     suite_sha256 = hashlib.sha256(suite_bytes).hexdigest()
     results: list[dict[str, Any]] = []
     per_case: list[dict[str, Any]] = []
@@ -89,31 +114,57 @@ def run_benchmark(
                     orchestrator.enable_response_cache = cache_enabled
             elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
             normalized = result.message.casefold()
-            missing = [needle for needle in case.get("must_contain", []) if needle.casefold() not in normalized]
-            forbidden_text = [needle for needle in case.get("must_not_contain", []) if needle.casefold() in normalized]
-            used_tools = [item["tool"] for item in result.trace if isinstance(item.get("tool"), str)]
-            missing_tools = [tool for tool in case.get("required_tools", []) if tool not in used_tools]
-            forbidden_tools_used = [tool for tool in case.get("forbidden_tools", []) if tool in used_tools]
+            missing = [
+                needle
+                for needle in case.get("must_contain", [])
+                if needle.casefold() not in normalized
+            ]
+            forbidden_text = [
+                needle
+                for needle in case.get("must_not_contain", [])
+                if needle.casefold() in normalized
+            ]
+            used_tools = [
+                item["tool"] for item in result.trace if isinstance(item.get("tool"), str)
+            ]
+            missing_tools = [
+                tool for tool in case.get("required_tools", []) if tool not in used_tools
+            ]
+            forbidden_tools_used = [
+                tool for tool in case.get("forbidden_tools", []) if tool in used_tools
+            ]
             expected_status = case.get("expected_status")
             status_ok = expected_status is None or result.status == expected_status
-            proposal_ids = [item.get("proposal_id") for item in result.trace
-                            if item.get("tool") == "propose_patch" and isinstance(item.get("proposal_id"), str)]
+            proposal_ids = [
+                item.get("proposal_id")
+                for item in result.trace
+                if item.get("tool") == "propose_patch" and isinstance(item.get("proposal_id"), str)
+            ]
             proposal_ok = not case.get("require_patch_proposal", False) or bool(proposal_ids)
-            verification_events = [item for item in result.trace if item.get("tool") == "verify_proposal"]
+            verification_events = [
+                item for item in result.trace if item.get("tool") == "verify_proposal"
+            ]
             successful_verification = any(
                 item.get("verified_proposal") is True and item.get("verification_passed") is True
                 for item in verification_events
             )
-            verification_ok = not case.get("require_successful_verification", False) or successful_verification
+            verification_ok = (
+                not case.get("require_successful_verification", False) or successful_verification
+            )
             expected_regressions = case.get("expected_regression_statuses", [])
-            observed_regressions = [item.get("regression_status") for item in verification_events
-                                    if isinstance(item.get("regression_status"), str)]
+            observed_regressions = [
+                item.get("regression_status")
+                for item in verification_events
+                if isinstance(item.get("regression_status"), str)
+            ]
             regression_ok = not expected_regressions or any(
                 status in expected_regressions for status in observed_regressions
             )
             min_steps = case.get("min_steps")
             max_steps = case.get("max_steps")
-            steps_ok = (min_steps is None or result.steps >= min_steps) and (max_steps is None or result.steps <= max_steps)
+            steps_ok = (min_steps is None or result.steps >= min_steps) and (
+                max_steps is None or result.steps <= max_steps
+            )
             checks = {
                 "must_contain": not missing,
                 "must_not_contain": not forbidden_text,
@@ -153,17 +204,21 @@ def run_benchmark(
             case_results.append(item)
         case_passed = sum(1 for item in case_results if item["passed"])
         latencies = [item["latency_ms"] for item in case_results]
-        per_case.append({
-            "id": case_id,
-            "runs": len(case_results),
-            "passed": case_passed,
-            "failed": len(case_results) - case_passed,
-            "pass_rate": round(case_passed / len(case_results), 4),
-            "stable_pass": case_passed == len(case_results),
-            "latency_mean_ms": round(statistics.fmean(latencies), 2),
-            "latency_median_ms": round(statistics.median(latencies), 2),
-            "estimated_output_tokens_total": sum(item["estimated_output_tokens"] for item in case_results),
-        })
+        per_case.append(
+            {
+                "id": case_id,
+                "runs": len(case_results),
+                "passed": case_passed,
+                "failed": len(case_results) - case_passed,
+                "pass_rate": round(case_passed / len(case_results), 4),
+                "stable_pass": case_passed == len(case_results),
+                "latency_mean_ms": round(statistics.fmean(latencies), 2),
+                "latency_median_ms": round(statistics.median(latencies), 2),
+                "estimated_output_tokens_total": sum(
+                    item["estimated_output_tokens"] for item in case_results
+                ),
+            }
+        )
 
     total = len(results)
     passed = sum(1 for item in results if item["passed"])
@@ -171,7 +226,7 @@ def run_benchmark(
     return {
         "schema_version": 5,
         "metadata": {
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "aurix_version": __version__,
             "python_version": platform.python_version(),
             "provider_class": type(orchestrator.provider).__name__,
@@ -205,7 +260,9 @@ def compare_reports(current: dict[str, Any], baseline: dict[str, Any]) -> dict[s
     for label, report in (("current", current), ("baseline", baseline)):
         if not isinstance(report, dict) or report.get("schema_version") != 5:
             raise ValueError(f"{label} report must use benchmark schema_version 5")
-        if not isinstance(report.get("metadata"), dict) or not isinstance(report.get("per_case"), list):
+        if not isinstance(report.get("metadata"), dict) or not isinstance(
+            report.get("per_case"), list
+        ):
             raise ValueError(f"{label} report is missing metadata or per_case results")
         if not isinstance(report.get("pass_rate"), (int, float)):
             raise ValueError(f"{label} report has no valid pass_rate")
@@ -215,22 +272,32 @@ def compare_reports(current: dict[str, Any], baseline: dict[str, Any]) -> dict[s
     if current.get("repetitions") != baseline.get("repetitions"):
         raise ValueError("Cannot compare reports with different repetition counts")
     current_cases = {item.get("id"): item for item in current["per_case"] if isinstance(item, dict)}
-    baseline_cases = {item.get("id"): item for item in baseline["per_case"] if isinstance(item, dict)}
+    baseline_cases = {
+        item.get("id"): item for item in baseline["per_case"] if isinstance(item, dict)
+    }
     if not current_cases or current_cases.keys() != baseline_cases.keys():
         raise ValueError("Benchmark reports do not contain the same case IDs")
     per_case = []
     for case_id in sorted(current_cases):
         now, before = current_cases[case_id], baseline_cases[case_id]
-        per_case.append({
-            "id": case_id,
-            "baseline_pass_rate": before.get("pass_rate"),
-            "current_pass_rate": now.get("pass_rate"),
-            "pass_rate_delta": round(float(now.get("pass_rate", 0)) - float(before.get("pass_rate", 0)), 4),
-            "baseline_stable_pass": before.get("stable_pass"),
-            "current_stable_pass": now.get("stable_pass"),
-            "latency_mean_delta_ms": round(float(now.get("latency_mean_ms", 0)) - float(before.get("latency_mean_ms", 0)), 2),
-            "estimated_output_tokens_delta": int(now.get("estimated_output_tokens_total", 0)) - int(before.get("estimated_output_tokens_total", 0)),
-        })
+        per_case.append(
+            {
+                "id": case_id,
+                "baseline_pass_rate": before.get("pass_rate"),
+                "current_pass_rate": now.get("pass_rate"),
+                "pass_rate_delta": round(
+                    float(now.get("pass_rate", 0)) - float(before.get("pass_rate", 0)), 4
+                ),
+                "baseline_stable_pass": before.get("stable_pass"),
+                "current_stable_pass": now.get("stable_pass"),
+                "latency_mean_delta_ms": round(
+                    float(now.get("latency_mean_ms", 0)) - float(before.get("latency_mean_ms", 0)),
+                    2,
+                ),
+                "estimated_output_tokens_delta": int(now.get("estimated_output_tokens_total", 0))
+                - int(before.get("estimated_output_tokens_total", 0)),
+            }
+        )
     delta = round(float(current["pass_rate"]) - float(baseline["pass_rate"]), 4)
     return {
         "schema_version": 1,
@@ -243,8 +310,11 @@ def compare_reports(current: dict[str, Any], baseline: dict[str, Any]) -> dict[s
         "baseline_pass_rate": baseline["pass_rate"],
         "current_pass_rate": current["pass_rate"],
         "pass_rate_delta": delta,
-        "latency_mean_delta_ms": round(float(current.get("latency_mean_ms", 0)) - float(baseline.get("latency_mean_ms", 0)), 2),
-        "estimated_output_tokens_delta": int(current.get("estimated_output_tokens_total", 0)) - int(baseline.get("estimated_output_tokens_total", 0)),
+        "latency_mean_delta_ms": round(
+            float(current.get("latency_mean_ms", 0)) - float(baseline.get("latency_mean_ms", 0)), 2
+        ),
+        "estimated_output_tokens_delta": int(current.get("estimated_output_tokens_total", 0))
+        - int(baseline.get("estimated_output_tokens_total", 0)),
         "per_case": per_case,
         "limitations": [
             "Comparison is descriptive and does not establish causality or statistical significance.",

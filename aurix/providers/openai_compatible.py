@@ -4,6 +4,7 @@ Works with compatible local servers (for example llama.cpp server, LM Studio,
  vLLM) and hosted endpoints. The provider does not assume any vendor-specific
 features beyond /v1/chat/completions.
 """
+
 from __future__ import annotations
 
 import os
@@ -27,12 +28,14 @@ class OpenAICompatibleProvider:
         timeout: float = 120.0,
     ) -> None:
         self.model = model or os.getenv("AURIX_MODEL", "local-model")
-        self.base_url = (base_url or os.getenv("AURIX_BASE_URL", "http://localhost:1234/v1")).rstrip("/")
+        self.base_url = (
+            base_url or os.getenv("AURIX_BASE_URL", "http://localhost:1234/v1")
+        ).rstrip("/")
         self.api_key = api_key if api_key is not None else os.getenv("AURIX_API_KEY", "")
         self.timeout = max(1.0, float(timeout))
 
     def generate(self, prompt: str, *, system: str = "") -> str:
-        messages = ([{"role": "system", "content": system}] if system else [])
+        messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": prompt})
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -42,8 +45,12 @@ class OpenAICompatibleProvider:
                 response = client.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,
-                    json={"model": self.model, "messages": messages, "stream": False,
-                          "max_tokens": max(1, min(_output_limit(), 32768))},
+                    json={
+                        "model": self.model,
+                        "messages": messages,
+                        "stream": False,
+                        "max_tokens": max(1, min(_output_limit(), 32768)),
+                    },
                 )
                 response.raise_for_status()
                 payload = response.json()
