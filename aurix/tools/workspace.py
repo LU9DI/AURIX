@@ -99,7 +99,10 @@ def safe_path(workspace: Path, relative_path: str = ".") -> Path:
 
 
 def _is_ignored(relative: Path) -> bool:
-    return any(part in IGNORED_DIRS for part in relative.parts)
+    # Normalize case for portable policy: Windows filesystems are commonly
+    # case-insensitive, and case variants must not bypass ignored-directory rules.
+    ignored = {name.casefold() for name in IGNORED_DIRS}
+    return any(part.casefold() in ignored for part in relative.parts)
 
 
 def _is_ignored_target(workspace: Path, target: Path) -> bool:
