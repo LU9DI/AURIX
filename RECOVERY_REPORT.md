@@ -1,24 +1,24 @@
-# AURIX recovery report
+# AURIX recovery and repository normalization report
 
-## Recovered archive
+Updated: 2026-10-12
 
-Archive: `AURIX-recovered-source-and-release-history-v0.85.0.zip`
+## Publication state
 
-Reported inventory:
-- Snapshot: v0.85.0
-- 97 source/documentation/configuration entries
-- 47 Python modules
-- 32 Python tests
-- 84 historical release ZIPs from v0.2 through v0.85.0
-- Initial scaffold ZIP
-- SHA-256 checksums manifest
+The recovered v0.85.0 project is normalized in the repository root as the canonical working tree:
+- Python package: `aurix/`
+- Tests: `tests/`
+- Project configuration: `pyproject.toml`
+- CI: `.github/workflows/ci.yml`
+- Main documentation: `README.md`
+
+The uploaded complete backup and historical snapshots remain preserved under `AURIX-backup-work/` and as the original ZIP at the repository root. Original Git history was not reconstructed because source archives do not preserve commit ancestry, authorship, branches, tags, or diffs.
+
+## Validation
+
+The previous recovery process checked the locally available archive manifest and historical ZIP structure. Those checks do not substitute for CI on the normalized working tree. The root CI workflow runs compileall, Ruff, and pytest on Python 3.11. The latest GitHub Actions result is the source of truth for whether all checks pass.
 
 ## Known limitations
 
-- The archive does not reconstruct original Git commit history, authors, timestamps, branches, tags, or diffs.
-- The recovery report identified one README divergence.
-- This report is a transcription of the archive inventory, not a checksum verification of the extracted files.
-
-## Publication status
-
-The repository has been initialized and this recovery report is published. The complete source tree and historical release archives have **not** yet been uploaded. Do not treat this repository as a complete restoration until the files in the recovery archive are transferred and verified.
+- Historical source files may retain old version references.
+- The project remains research software, not production-ready.
+- Do not execute untrusted project code on the host; the default `trusted` verification mode is not an OS sandbox.

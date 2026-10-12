@@ -1,0 +1,236 @@
+"""Safe, bounded adapter for REA's static JavaScript/Electron analysis CLI."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from aurix.tools.workspace import safe_path
+
+MAX_STDOUT_CHARS = 32_000
+MAX_STDERR_CHARS = 4_000
+MAX_TIMEOUT_SECONDS = 120
+
+
+def _rea_executable() -> str:
+    configured = os.environ.get("AURIX_REA_BIN", "rea").strip()
+    if not configured:
+        raise ValueError("AURIX_REA_BIN must not be empty")
+    executable = shutil.which(configured)
+    if executable is None:
+        raise FileNotFoundError(
+            "REA CLI was not found. Install the upstream 'rea-agents' package and ensure 'rea' is on PATH, "
+            "or set AURIX_REA_BIN to its executable path."
+        )
+    return executable
+
+
+def _child_environment() -> dict[str, str]:
+    """Pass only basic runtime variables; never forward API keys or the full environment."""
+    allowed = (
+        "PATH",
+        "HOME",
+        "USERPROFILE",
+        "SYSTEMROOT",
+        "WINDIR",
+        "TMP",
+        "TEMP",
+        "LANG",
+        "LC_ALL",
+    )
+    return {key: os.environ[key] for key in allowed if key in os.environ}
+
+
+def analyze_javascript_application(
+    workspace: Path | str,
+    relative_path: str = ".",
+    *,
+    timeout_seconds: int = 90,
+) -> dict[str, Any]:
+    """Run REA's read-only static JavaScript/Electron analysis on a workspace target.
+
+    The target must be a directory or an ASAR file inside the configured workspace.
+    No shell is used and application code is not launched.
+    """
+    if not isinstance(relative_path, str) or not relative_path.strip():
+        raise ValueError("REA analysis requires a non-empty workspace-relative path")
+    if Path(relative_path).is_absolute() or ".." in Path(relative_path).parts:
+        raise PermissionError("REA target must be a relative path inside the configured workspace")
+
+    root = Path(workspace).expanduser().resolve()
+    target = safe_path(root, relative_path)
+    if not target.exists():
+        raise FileNotFoundError(f"REA target does not exist: {relative_path}")
+    if target.is_symlink():
+        raise PermissionError("REA does not analyze symlink targets")
+    if not (target.is_dir() or (target.is_file() and target.suffix.lower() == ".asar")):
+        raise ValueError(
+            "REA static JavaScript analysis accepts an application directory or .asar file"
+        )
+
+    timeout = max(1, min(int(timeout_seconds), MAX_TIMEOUT_SECONDS))
+    executable = _rea_executable()
+    argv = [executable, "analyze-javascript-application", str(target), "--json"]
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=root,
+            env=_child_environment(),
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "status": "timeout",
+            "tool": "rea",
+            "target": target.relative_to(root).as_posix(),
+            "timeout_seconds": timeout,
+            "stdout": str(exc.stdout or "")[-MAX_STDOUT_CHARS:],
+            "stderr": str(exc.stderr or "")[-MAX_STDERR_CHARS:],
+            "application_executed": False,
+        }
+
+    stdout = completed.stdout[-MAX_STDOUT_CHARS:]
+    stderr = completed.stderr[-MAX_STDERR_CHARS:]
+    result: dict[str, Any] = {
+        "status": "completed" if completed.returncode == 0 else "failed",
+        "tool": "rea",
+        "target": target.relative_to(root).as_posix(),
+        "returncode": completed.returncode,
+        "application_executed": False,
+        "stderr": stderr,
+    }
+    try:
+        parsed = json.loads(stdout)
+    except json.JSONDecodeError:
+        result["status"] = "invalid_output" if completed.returncode == 0 else result["status"]
+        result["output"] = stdout
+        result["output_format"] = "text"
+    else:
+        result["evidence"] = parsed
+        result["output_format"] = "json"
+    return result
+
+
+REA_INVESTIGATION_COMMANDS = {
+    "analyze",
+    "search",
+    "function",
+    "decompile",
+    "xrefs",
+    "trace",
+    "providers",
+    "capabilities",
+}
+_MAX_QUERY_CHARS = 500
+
+
+def investigate_with_rea(
+    workspace: Path | str,
+    command: str,
+    *,
+    path: str = ".",
+    query: str = "",
+    provider: str = "auto",
+    timeout_seconds: int = 90,
+) -> dict[str, Any]:
+    """Run one allowlisted REA CLI investigation and return bounded evidence.
+
+    This never invokes a shell or launches the analyzed target. Native commands
+    may contact configured analysis providers (for example Ghidra/Hopper).
+    """
+    if command not in REA_INVESTIGATION_COMMANDS:
+        raise ValueError("Unsupported REA command")
+    root = Path(workspace).expanduser().resolve(strict=True)
+    timeout = max(1, min(int(timeout_seconds), MAX_TIMEOUT_SECONDS))
+    if command in {"providers", "capabilities"}:
+        argv_tail = [command, "--json"]
+        target_label = None
+    else:
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError("REA target path must be a non-empty relative path")
+        if Path(path).is_absolute() or ".." in Path(path).parts:
+            raise PermissionError("REA target must remain inside the workspace")
+        target = safe_path(root, path)
+        if not target.exists() or target.is_symlink() or not (target.is_file() or target.is_dir()):
+            raise ValueError(
+                "REA target must be an existing regular file or directory, not a symlink"
+            )
+        argv_tail = [command, str(target)]
+        if command in {"search", "trace"}:
+            if not isinstance(query, str) or not query.strip() or len(query) > _MAX_QUERY_CHARS:
+                raise ValueError(
+                    f"REA {command} requires a query of 1-{_MAX_QUERY_CHARS} characters"
+                )
+            argv_tail.append(query.strip())
+        elif command in {"function", "decompile", "xrefs"}:
+            if not isinstance(query, str) or not query.strip() or len(query) > _MAX_QUERY_CHARS:
+                raise ValueError(f"REA {command} requires a function name or address")
+            argv_tail.append(query.strip())
+        if command in {"analyze", "search", "function", "decompile", "xrefs", "trace"}:
+            if provider != "auto":
+                if (
+                    not isinstance(provider, str)
+                    or not provider
+                    or len(provider) > 80
+                    or not all(c.isalnum() or c in "-_" for c in provider)
+                ):
+                    raise ValueError("Invalid REA provider ID")
+                argv_tail.extend(["--provider", provider])
+        argv_tail.append("--json")
+        target_label = target.relative_to(root).as_posix()
+    executable = _rea_executable()
+    argv = [executable, *argv_tail]
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=root,
+            env=_child_environment(),
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "status": "timeout",
+            "tool": "rea",
+            "command": command,
+            "target": target_label,
+            "timeout_seconds": timeout,
+            "stdout": str(exc.stdout or "")[-MAX_STDOUT_CHARS:],
+            "stderr": str(exc.stderr or "")[-MAX_STDERR_CHARS:],
+            "target_executed": False,
+        }
+    stdout, stderr = completed.stdout, completed.stderr
+    result: dict[str, Any] = {
+        "status": "completed" if completed.returncode == 0 else "failed",
+        "tool": "rea",
+        "command": command,
+        "target": target_label,
+        "returncode": completed.returncode,
+        "target_executed": False,
+        "stderr": stderr[-MAX_STDERR_CHARS:],
+        "output_truncated": len(stdout) > MAX_STDOUT_CHARS,
+    }
+    try:
+        result["evidence"] = json.loads(stdout[-MAX_STDOUT_CHARS:])
+        result["output_format"] = "json"
+    except json.JSONDecodeError:
+        result["output"] = stdout[-MAX_STDOUT_CHARS:]
+        result["output_format"] = "text"
+        if completed.returncode == 0:
+            result["status"] = "invalid_output"
+    return result
