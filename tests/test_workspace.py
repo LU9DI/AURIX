@@ -129,3 +129,17 @@ def test_workspace_tools_skip_kubernetes_and_terraform_secrets(tmp_path):
         read_text(tmp_path, ".kube/config")
     with pytest.raises(PermissionError):
         read_text(tmp_path, ".terraform/terraform.tfstate")
+
+
+def test_direct_reads_reject_ignored_metadata_and_dependency_directories(tmp_path):
+    from aurix.tools.workspace import read_text, read_text_lines
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("[remote]", encoding="utf-8")
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venv" / "credentials.txt").write_text("LOCAL_SECRET", encoding="utf-8")
+    for relative in (".git/config", ".venv/credentials.txt"):
+        with pytest.raises(PermissionError, match="ignored"):
+            read_text(tmp_path, relative)
+        with pytest.raises(PermissionError, match="ignored"):
+            read_text_lines(tmp_path, relative)
