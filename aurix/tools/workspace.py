@@ -102,6 +102,15 @@ def _is_ignored(relative: Path) -> bool:
     return any(part in IGNORED_DIRS for part in relative.parts)
 
 
+def _is_ignored_target(workspace: Path, target: Path) -> bool:
+    """Apply directory exclusions to direct reads as well as recursive traversal."""
+    try:
+        relative = target.relative_to(workspace.resolve())
+    except ValueError:
+        return True
+    return _is_ignored(relative)
+
+
 def _is_sensitive(path: Path) -> bool:
     name = path.name.lower()
     parent_parts = {part.lower() for part in path.parts[:-1]}
@@ -136,8 +145,8 @@ def list_files(workspace: Path, relative_path: str = ".", *, limit: int = 200) -
 
 def read_text(workspace: Path, relative_path: str, *, max_chars: int = 20000) -> str:
     target = safe_path(workspace, relative_path)
-    if _is_sensitive(target) or target.is_symlink():
-        raise PermissionError("Reading sensitive files or symlinks is not allowed")
+    if _is_ignored_target(workspace, target) or _is_sensitive(target) or target.is_symlink():
+        raise PermissionError("Reading ignored, sensitive files or symlinks is not allowed")
     if not target.is_file():
         raise FileNotFoundError(relative_path)
     if target.stat().st_size > max_chars * 4:
