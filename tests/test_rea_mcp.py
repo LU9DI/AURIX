@@ -11,12 +11,14 @@ class _FakeStdout:
     def __init__(self, messages):
         self.messages = messages
 
-    def __iter__(self):
-        while True:
-            item = self.messages.get()
-            if item is None:
-                return
-            yield item
+    def read(self, size):
+        item = self.messages.get()
+        if item is None:
+            return ""
+        if len(item) <= size:
+            return item
+        self.messages.put(item[size:])
+        return item[:size]
 
 
 class _FakeStdin:
@@ -163,3 +165,31 @@ def test_mcp_tool_is_available_to_orchestrator(monkeypatch, tmp_path):
     assert result.status == "completed"
     assert result.trace[0]["tool"] == "rea_mcp_investigate"
     assert "binary overview" in provider.prompts[1]
+
+
+def test_mcp_stdout_rejects_oversized_line_before_json_parse(monkeypatch):
+    class Stream:
+        def __init__(self):
+            self.sent = False
+
+        def read(self, size):
+            if self.sent:
+                return ""
+            self.sent = True
+            return "x" * (rea_mcp.MAX_MCP_MESSAGE_CHARS + 1)
+
+    class Process:
+        def __init__(self):
+            self.stdout = Stream()
+            self.terminated = False
+
+        def terminate(self):
+            self.terminated = True
+
+    process = Process()
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.process = process
+    client._messages = queue.Queue(maxsize=rea_mcp._MAX_QUEUED_MCP_MESSAGES)
+    client._read_stdout()
+    assert client._messages.get_nowait() == rea_mcp._OVERSIZED_MESSAGE
+    assert process.terminated is True
