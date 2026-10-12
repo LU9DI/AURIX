@@ -122,8 +122,14 @@ class _StdioMCP:
             self._stderr_parts.append(chunk)
             self._stderr_size += len(chunk)
             while self._stderr_size > MAX_MCP_STDERR_CHARS and self._stderr_parts:
-                removed = self._stderr_parts.pop(0)
-                self._stderr_size -= len(removed)
+                excess = self._stderr_size - MAX_MCP_STDERR_CHARS
+                first = self._stderr_parts[0]
+                if len(first) <= excess:
+                    self._stderr_parts.pop(0)
+                    self._stderr_size -= len(first)
+                else:
+                    self._stderr_parts[0] = first[excess:]
+                    self._stderr_size -= excess
 
     @property
     def stderr(self) -> str:
