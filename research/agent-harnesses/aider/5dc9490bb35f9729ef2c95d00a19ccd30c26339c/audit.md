@@ -107,3 +107,31 @@ The current `aurix/tools/workspace.py::safe_path` explicitly checks each lexical
 - [ ] Inspect tests for symlinks, traversal, paths outside the repo, malformed patches, and failures after partial writes.
 - [ ] For AURIX, add or confirm tests for REA path symlinks, timeout behavior, oversized stdout/stderr, invalid JSON, nonzero exit status, and provider command allowlisting.
 - [ ] Do not import code from Aider solely on architectural resemblance; extract behavioral requirements and reproduce them with AURIX-specific tests first.
+
+## Third-pass review: command runtime and resource bounds
+
+**Scope extension (2026-10-12):** traced `aider/commands.py::cmd_git`, `cmd_run`, `cmd_test`, and the pinned `aider/run_cmd.py` implementation. Static inspection only; commands were not executed.
+
+11. **The `/git` command path bypasses the shared runner and has no explicit timeout or output cap**
+   - Evidence: [`aider/commands.py::cmd_git`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/commands.py) constructs a command string prefixed with `git `, then calls `subprocess.run(..., shell=True, stdout=PIPE, stderr=STDOUT)` without a timeout. The complete combined output is held in memory and printed after the command returns.
+   - Security interpretation: this is a separate, user-invoked command surface. The finding is about inconsistent execution controls and availability/resource exposure, not a claim that the intended interactive shell command itself is an exploitable injection vulnerability.
+   - AURIX implication: avoid creating a second subprocess policy. Route commands through one executor that enforces an explicit timeout, bounded output, controlled cwd/environment, and consistent error semantics. If a feature requires unrestricted Git syntax, preserve that as an explicit user capability rather than silently treating it as sandboxed.
+
+12. **The shared `run_cmd_subprocess` captures all output without a time or byte budget**
+   - Evidence: [`aider/run_cmd.py::run_cmd_subprocess`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/run_cmd.py) reads stdout one character at a time, appends every character to an in-memory list, and waits for process completion without a timeout. The pexpect path similarly accumulates output in a `BytesIO` buffer and interacts with the child process.
+   - Observation: streaming characters to the terminal does not bound retained output. A noisy or stuck command can consume unbounded time and memory. The interactive pexpect path has different lifecycle behavior, so any remediation needs separate tests for TTY and non-TTY modes.
+   - Confidence: high for the visible absence of an explicit timeout/output budget in these functions; actual practical impact depends on the caller, terminal mode, command and host limits.
+   - AURIX implication: implement byte-counted streaming, enforce a deadline, terminate then kill on timeout/budget breach, and cap retained output independently from what is streamed. Test huge stdout, stderr-heavy commands, a child that never exits, and child-process cleanup.
+
+13. **Command output is fed back to the model as untrusted context**
+   - Evidence: [`aider/commands.py::cmd_run`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/commands.py) can append captured output into the conversation; `cmd_test` automatically adds output on non-zero exit.
+   - Observation: output can contain arbitrary text emitted by build tools, test fixtures, package scripts, or repository-controlled programs. Once inserted into model context it can influence subsequent model behavior. User confirmation for ordinary `/run` output is not equivalent to sanitizing or isolating that output, and the test-failure path has a distinct policy.
+   - Security interpretation: this is an agent prompt-injection/trust-boundary concern, not proof that a particular exploit succeeds. A practical defense is provenance labeling, strict separation of tool output from trusted instructions, truncation, and a policy that never grants tool output authority to change execution permissions.
+   - AURIX implication: preserve provenance for command output in the trace, bound it before adding it to prompts, and make sure tool results cannot alter the orchestrator's allowlist or consent state.
+
+## Third-pass action list
+
+- [ ] Add resource-budget tests for both TTY and non-TTY command execution paths.
+- [ ] Verify how command output truncation and non-zero exit handling interact with model context.
+- [ ] In AURIX, close the REA adapter's analogous pre-truncation buffering gap before describing output as memory-bounded.
+- [ ] Keep static observations, likely risks, and confirmed exploitability as separate categories in future reports.
