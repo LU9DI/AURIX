@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from aurix.tools import rea
+from aurix.tools import rea, rea_mcp
 
 
 def test_rea_runs_only_static_analysis_without_shell(monkeypatch, tmp_path):
@@ -386,8 +386,8 @@ def test_rea_cli_process_group_uses_posix_signals(monkeypatch):
 
 @pytest.mark.parametrize(
     "signal_tree",
-    [rea._signal_process_group],
-    ids=["rea-cli-process-group"],
+    [rea._signal_process_group, rea_mcp._signal_process_tree],
+    ids=["rea-cli-process-group", "rea-mcp-process-group"],
 )
 def test_posix_process_group_signal_reaches_real_descendant(signal_tree, tmp_path):
     import os
