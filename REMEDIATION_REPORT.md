@@ -15,9 +15,15 @@ Branch: `fix/audit-gaps-repository-hardening`
 - Normalize legacy formatting and configure CI to enforce syntax, unused-name/import, and core error checks while excluding the repository's existing long-line style debt.
 - Update the root README and recovery report.
 
-## Validation gate
+## Final validation (2026-10-12)
 
-Do not merge until the root CI workflow finishes successfully. Compile success alone does not establish test correctness or security. Any Ruff or pytest failures must be corrected. Production use still requires network egress controls; the default trusted test mode is not a sandbox.
+- Pull request #4 was merged into `main`; merge commit: `75699ddd3a3146016c5923f43b9c1560ed99ed49`.
+- Final root CI run: [38300231279](https://github.com/LU9DI/AURIX/actions/runs/38300231279) — **success**.
+- `python -m compileall -q aurix tests`: passed.
+- Correctness-focused Ruff gate: passed. The gate checks `E` and `F` rules and excludes `E501` long-line debt; it is not a full style-cleanliness claim.
+- `pytest`: **299 passed in 12.07 seconds**.
+- The canonical source and tests are at the repository root. The duplicate `AURIX-backup-work/source/` tree was removed after the legacy restore workflow reintroduced it; that obsolete workflow was then removed to prevent recurrence.
+- The complete uploaded backup and 84 historical release ZIPs remain preserved.
 
 ## Retained boundaries
 
