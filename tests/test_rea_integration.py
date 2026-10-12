@@ -408,13 +408,12 @@ def test_posix_process_group_signal_reaches_real_descendant(signal_tree, tmp_pat
         " marker.write_text('received', encoding='utf-8')\\n"
         " raise SystemExit(0)\\n"
         "signal.signal(signal.SIGTERM, stop)\\n"
+        f"Path({str(child_started)!r}).write_text('ready', encoding='utf-8')\\n"
         "while True: time.sleep(0.05)\\n"
     )
     parent_code = (
         "import subprocess,sys,time\\n"
-        "from pathlib import Path\\n"
-        f"child=subprocess.Popen([sys.executable, '-c', {child_code!r}])\\n"
-        f"Path({str(child_started)!r}).write_text(str(child.pid), encoding='utf-8')\\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\\n"
         "while True: time.sleep(0.05)\\n"
     )
     process = subprocess.Popen(
