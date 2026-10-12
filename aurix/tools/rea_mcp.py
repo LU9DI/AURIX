@@ -43,9 +43,15 @@ class _StdioMCP:
             self._messages.put_nowait(message)
         except queue.Full:
             try:
-                self._messages.get_nowait()
+                displaced = self._messages.get_nowait()
             except queue.Empty:
-                pass
+                displaced = None
+            if message is None and displaced == _OVERSIZED_MESSAGE:
+                try:
+                    self._messages.put_nowait(displaced)
+                except queue.Full:
+                    pass
+                return
             try:
                 self._messages.put_nowait(message)
             except queue.Full:
