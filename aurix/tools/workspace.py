@@ -172,8 +172,8 @@ def read_text_lines(
     ):
         raise ValueError("end_line must be an integer greater than or equal to start_line")
     target = safe_path(workspace, relative_path)
-    if _is_sensitive(target) or target.is_symlink():
-        raise PermissionError("Reading sensitive files or symlinks is not allowed")
+    if _is_ignored_target(workspace, target) or _is_sensitive(target) or target.is_symlink():
+        raise PermissionError("Reading ignored, sensitive files or symlinks is not allowed")
     if not target.is_file():
         raise FileNotFoundError(relative_path)
     if target.stat().st_size > 2_000_000:
