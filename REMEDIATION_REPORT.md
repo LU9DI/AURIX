@@ -1,7 +1,7 @@
 # AURIX remediation log
 
 Date: 2026-10-12  
-Branch: `fix/audit-gaps-repository-hardening`
+Branch: `main`
 
 ## Changes in this remediation set
 
@@ -12,6 +12,9 @@ Branch: `fix/audit-gaps-repository-hardening`
 - Add scoped `delete` and `clear` operations to the memory protocol and SQLite/PostgreSQL backends, with tests.
 - Strengthen response-cache invalidation by hashing file contents within explicit per-file and total byte budgets; add a regression test for same-size changes with preserved timestamps.
 - Require HTTPS for remote OpenAI-compatible providers and allow plain HTTP only for loopback endpoints; add regression tests.
+- Harden Docker test execution further: run as a non-root UID and mount the workspace read-only, in addition to disabling networking and dropping capabilities.
+- Expand workspace secret exclusions to common credential directories (`.ssh`, `.aws`, `.azure`, `.gnupg`, `.docker`) and token/credential files such as `.npmrc`, `.netrc`, and `.pypirc`, with regression coverage.
+- Add a documented REA-assisted research workstream with a public-source target catalogue, evidence schema, license review, reproducibility requirements, and isolation boundaries.
 - Normalize legacy formatting and configure CI to enforce syntax, unused-name/import, and core error checks while excluding the repository's existing long-line style debt.
 - Update the root README and recovery report.
 
@@ -21,7 +24,7 @@ Branch: `fix/audit-gaps-repository-hardening`
 - Final root CI run: [38300231279](https://github.com/LU9DI/AURIX/actions/runs/38300231279) — **success**.
 - `python -m compileall -q aurix tests`: passed.
 - Correctness-focused Ruff gate: passed. The gate checks `E` and `F` rules and excludes `E501` long-line debt; it is not a full style-cleanliness claim.
-- `pytest`: **299 passed in 12.07 seconds**.
+- `pytest`: **300 passed in 11.76 seconds** on run [38300814966](https://github.com/LU9DI/AURIX/actions/runs/38300814966); the final documentation-only revision also passed CI on [38300979752](https://github.com/LU9DI/AURIX/actions/runs/38300979752).
 - The canonical source and tests are at the repository root. The duplicate `AURIX-backup-work/source/` tree was removed after the legacy restore workflow reintroduced it; that obsolete workflow was then removed to prevent recurrence.
 - The complete uploaded backup and 84 historical release ZIPs remain preserved.
 
