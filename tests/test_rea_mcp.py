@@ -11,7 +11,7 @@ class _FakeStdout:
     def __init__(self, messages):
         self.messages = messages
 
-    def read(self, size):
+    def readline(self, size):
         item = self.messages.get()
         if item is None:
             return ""
@@ -172,11 +172,11 @@ def test_mcp_stdout_rejects_oversized_line_before_json_parse(monkeypatch):
         def __init__(self):
             self.sent = False
 
-        def read(self, size):
+        def readline(self, size):
             if self.sent:
                 return ""
             self.sent = True
-            return "x" * (rea_mcp.MAX_MCP_MESSAGE_CHARS + 1)
+            return "x" * size
 
     class Process:
         def __init__(self):
