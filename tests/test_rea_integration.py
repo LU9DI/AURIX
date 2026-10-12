@@ -262,3 +262,49 @@ def test_rea_bounded_runner_terminates_on_output_budget(monkeypatch, tmp_path):
     result = rea._run_bounded(["rea"], cwd=tmp_path, env={}, timeout=1)
     assert len(result["stdout"]) <= 400
     assert result["output_limit_exceeded"] is True
+
+
+def test_rea_static_analysis_reports_invalid_json_without_attribute_error(monkeypatch, tmp_path):
+    (tmp_path / "app.asar").write_bytes(b"fixture")
+    monkeypatch.setattr(rea, "_rea_executable", lambda: "rea")
+    monkeypatch.setattr(rea, "_child_environment", dict)
+    monkeypatch.setattr(
+        rea,
+        "_run_bounded",
+        lambda *args, **kwargs: {
+            "returncode": 0,
+            "stdout": "not-json",
+            "stderr": "",
+            "timed_out": False,
+            "output_limit_exceeded": False,
+        },
+    )
+
+    result = rea.analyze_javascript_application(tmp_path, "app.asar")
+
+    assert result["status"] == "invalid_output"
+    assert result["output_format"] == "text"
+    assert result["output"] == "not-json"
+
+
+def test_rea_investigation_reports_invalid_json_without_attribute_error(monkeypatch, tmp_path):
+    (tmp_path / "sample.bin").write_bytes(b"fixture")
+    monkeypatch.setattr(rea, "_rea_executable", lambda: "rea")
+    monkeypatch.setattr(rea, "_child_environment", dict)
+    monkeypatch.setattr(
+        rea,
+        "_run_bounded",
+        lambda *args, **kwargs: {
+            "returncode": 0,
+            "stdout": "not-json",
+            "stderr": "",
+            "timed_out": False,
+            "output_limit_exceeded": False,
+        },
+    )
+
+    result = rea.investigate_with_rea(tmp_path, "analyze", path="sample.bin")
+
+    assert result["status"] == "invalid_output"
+    assert result["output_format"] == "text"
+    assert result["output"] == "not-json"
