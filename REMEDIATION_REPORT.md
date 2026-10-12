@@ -10,6 +10,9 @@ Branch: `fix/audit-gaps-repository-hardening`
 - Fix the `robots.txt` disallow branch by constructing the source summary before the branch can append it.
 - Add a pinned outbound HTTP transport for research retrieval: resolve once per request, reject non-public answers, connect to the validated IP, preserve TLS hostname verification, disable redirects, and bound response buffering.
 - Add scoped `delete` and `clear` operations to the memory protocol and SQLite/PostgreSQL backends, with tests.
+- Strengthen response-cache invalidation by hashing file contents within explicit per-file and total byte budgets; add a regression test for same-size changes with preserved timestamps.
+- Require HTTPS for remote OpenAI-compatible providers and allow plain HTTP only for loopback endpoints; add regression tests.
+- Normalize legacy formatting and configure CI to enforce syntax, unused-name/import, and core error checks while excluding the repository's existing long-line style debt.
 - Update the root README and recovery report.
 
 ## Validation gate
