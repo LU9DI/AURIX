@@ -12,6 +12,8 @@ Branch: `fix/audit-gaps-repository-hardening`
 - Add scoped `delete` and `clear` operations to the memory protocol and SQLite/PostgreSQL backends, with tests.
 - Update the root README and recovery report.
 
+Formatting is normalized by the temporary repository-formatting workflow; that helper will be removed after its one-time run.
+
 ## Validation gate
 
 Do not merge until the root CI workflow finishes successfully. Compile success alone does not establish test correctness or security. Any Ruff or pytest failures must be corrected. Production use still requires network egress controls; the default trusted test mode is not a sandbox.
