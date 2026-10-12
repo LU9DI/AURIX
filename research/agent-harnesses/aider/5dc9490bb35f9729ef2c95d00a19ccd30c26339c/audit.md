@@ -151,3 +151,27 @@ The current `aurix/tools/workspace.py::safe_path` explicitly checks each lexical
 - Trace the full approval/configuration flow for /run, /test, /git, and model-suggested commands, including non-interactive and auto-test settings.
 - Inspect patch parser/apply tests for absolute paths, traversal, symlinked parent components, duplicate actions, and failure after a prior file mutation.
 - Keep source observations distinct from demonstrated exploitability; do not execute Aider or repository-supplied commands as part of the static audit.
+
+
+## Fifth-pass review: command approval paths and automatic test feedback
+
+**Date:** 2026-10-12. Static review of the pinned revision only; no Aider commands were executed.
+
+14. **Model-suggested shell commands have an explicit confirmation boundary, while configured automatic tests use a distinct path.**
+    - Evidence: [`base_coder.py::run_shell_commands` and `handle_shell_commands`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/coders/base_coder.py) gate suggested commands with `confirm_ask(..., explicit_yes_required=True)`; after an edit, the coder can also call `commands.cmd_test(self.test_cmd)` when `auto_test` is enabled.
+    - Evidence: [`commands.py::cmd_test` and `cmd_run`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/commands.py) route a configured string test command through `cmd_run(..., add_on_nonzero_exit=True)`. In that mode, failed command output is appended to the conversation without the separate confirmation used by interactive `/run`.
+    - Interpretation: the interactive `/run`, model-suggested shell commands, and configured automatic test command have different consent/output-injection semantics. The test command is a user configuration capability, not evidence of a bypass by itself; nevertheless, repository-controlled scripts invoked by it can emit arbitrary text that enters model context on failure.
+    - AURIX implication: keep user-invoked, model-suggested, and auto-test capabilities separate in policy and trace metadata. Treat command output as untrusted evidence, cap it before prompt insertion, and ensure it cannot change authorization state.
+
+15. **`/git` is a separate subprocess implementation from the shared runner.**
+    - Evidence: [`commands.py::cmd_git`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/commands.py) prefixes the user-provided arguments with `git `, uses `shell=True`, inherits a copy of the full environment with `GIT_EDITOR=true`, captures combined output without an explicit timeout, and only emits the captured output after the command exits.
+    - Interpretation: this confirms inconsistent resource/environment controls between `/git` and the shared `run_cmd` path. The command is user-invoked; this observation alone does not establish a shell-injection vulnerability.
+
+16. **Edit authorization is partly interactive and cached in the coder's file set; write-boundary guarantees remain unproven.**
+    - Evidence: [`base_coder.py::allowed_to_edit` and `abs_root_path`](https://github.com/Aider-AI/aider/blob/5dc9490bb35f9729ef2c95d00a19ccd30c26339c/aider/coders/base_coder.py) checks whether a path is already in the editable-file set, otherwise asks before creating a new file or editing a file not added to chat. The path helper uses `utils.safe_abs_path` and caches the result by the original path string.
+    - Interpretation: user confirmation governs whether an otherwise-unlisted file is added to the edit set, but this static review has not established symlink-race resistance or that all patch destinations are revalidated immediately before each filesystem mutation. Cached path resolution makes those tests especially relevant if the filesystem can change during a session.
+    - AURIX implication: validate canonical containment and symlink policy at the write boundary, not only during initial authorization; test path aliases, parent symlinks, and filesystem replacement between validation and write.
+
+### Updated command-flow conclusion
+
+The review now confirms a meaningful distinction between interactive command confirmation and automatic test execution. The remaining question is not simply whether “commands are approved,” but which origin (user, model suggestion, or configured test), which executor, which environment, and which output-to-model path applies. No exploit was demonstrated, and the upstream revision was not executed.
