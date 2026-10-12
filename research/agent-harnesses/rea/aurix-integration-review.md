@@ -25,11 +25,11 @@
 
 ### R-01 — Output truncation is not a process-memory bound — mitigation implemented; residual verification remains
 
-**Evidence (updated 2026-10-12):** `rea.py` now drains stdout and stderr on dedicated threads into bounded byte buffers and terminates the direct child on a combined output-budget breach or timeout. `rea_mcp.py` now uses a bounded message queue and bounded `readline` calls, rejects oversized frames before JSON parsing, and terminates the direct child on an oversized frame. Regression tests cover CLI output-budget termination and MCP over-limit frames.
+**Evidence (updated 2026-10-12):** `rea.py` now drains stdout and stderr on dedicated threads into bounded byte buffers and terminates the direct child on a combined output-budget breach or timeout. `rea_mcp.py` now uses a bounded message queue and bounded `readline` calls, rejects oversized/truncated frames before JSON parsing, fails fast on malformed JSON-RPC, and stops reading if queue backpressure persists. On POSIX, the MCP process is launched in a dedicated session and protocol failure/shutdown signals its process group; non-POSIX platforms fall back to direct-child termination. Regression tests cover CLI output-budget termination and MCP over-limit frames.
 
-**Impact:** the original unbounded-buffering design gap is mitigated for retained CLI output and MCP frame/queue sizes. This does not establish a strict whole-process-tree memory bound: the CLI runner terminates the direct child, not a verified process group, and the MCP lifecycle still needs broader fault-injection coverage. The implementation uses character limits for MCP framing and a byte budget for CLI output. No hostile executable was run.
+**Impact:** the original unbounded-buffering design gap is mitigated for retained CLI output and MCP frame/queue sizes. This does not establish a strict whole-process-tree memory bound: the CLI runner still terminates the direct child rather than a verified process group, and the MCP process-group path has only deterministic unit coverage so far, not a hostile descendant integration test. The implementation uses character limits for MCP framing and a byte budget for CLI output. No hostile executable was run.
 
-**Remaining remediation:** add deterministic tests for process descendants, timeout/termination races, stalled MCP initialization, malformed JSON-RPC, nonzero exits, and stderr flooding. Consider OS-level resource limits and process-group cleanup where supported.
+**Remaining remediation:** add deterministic tests for timeout/termination races, stalled MCP initialization, nonzero exits, stderr flooding, and descendant cleanup on each supported platform. Consider OS-level resource limits and process-group cleanup where supported.
 
 **Priority:** medium for deployments where the REA executable/provider is not fully trusted; lower where it is a pinned, locally trusted binary. Do not describe this as a confirmed remote vulnerability.
 
@@ -40,7 +40,7 @@ Current tests now exercise representative happy paths, a CLI timeout, output-bud
 - malformed JSON with exit status zero and nonzero;
 - oversized stdout/stderr behavior;
 - CLI timeout output type/size when `TimeoutExpired.stdout` or `.stderr` are bytes;
-- MCP overlong protocol lines, repeated unsolicited lines, stalled initialization, process termination after timeout, and stderr flooding;
+- MCP overlong/truncated protocol lines, malformed JSON-RPC, queue backpressure, process-group cleanup, repeated unsolicited lines, stalled initialization, process termination after timeout, and stderr flooding;
 - invalid or unavailable REA provider identifiers at the MCP boundary;
 - failure of `open_binary` versus failure of `binary_overview` independently.
 
@@ -81,4 +81,4 @@ The adapters do not launch the analyzed target application, which is a meaningfu
 
 ## Next action
 
-R-01 mitigation was committed on `main` in commits `95ffbd8`, `0360499`, `a27df16`, `d819ec3`, `75b16f4`, and related regression-test commits. The prior CI run at [`7e50db7`](https://github.com/LU9DI/AURIX/actions/runs/38315306950) passed. The latest CI run for commit [`694e7de`](https://github.com/LU9DI/AURIX/actions/runs/38315648593) passed (lint and test job successful; 306 tests passed). The preceding test run failed on a malformed newline fixture, which was corrected in `694e7de` and verified by the passing run. R-02 remains open for the failure cases listed above. R-03 remains a deployment/documentation boundary and must not be represented as solved by Python path validation alone.
+R-01 mitigation was committed on `main` in commits `95ffbd8`, `0360499`, `a27df16`, `d819ec3`, `75b16f4`, and related regression-test commits. The prior CI run at [`7e50db7`](https://github.com/LU9DI/AURIX/actions/runs/38315306950) passed. The latest CI run for commit [`694e7de`](https://github.com/LU9DI/AURIX/actions/runs/38315648593) passed (lint and test job successful; 306 tests passed). The preceding test run failed on a malformed newline fixture, which was corrected in `694e7de` and verified by the passing run. R-02 remains open for the failure cases listed above. New commits `7c0203e`, `7ddf96e`, `1938ff1`, and `7e18027` add MCP queue-backpressure handling, fail-fast malformed-JSON behavior, and POSIX process-group cleanup; their latest CI and the new process-group regression test must be checked before treating the whole series as green. R-03 remains a deployment/documentation boundary and must not be represented as solved by Python path validation alone.
