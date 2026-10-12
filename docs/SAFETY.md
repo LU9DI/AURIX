@@ -17,7 +17,7 @@ AURIX is intended to eventually read and modify code and invoke developer tools.
 
 ## Docker-isolated test execution (v0.33)
 
-For an operator-selected local image, the fixed test runner can use Docker with `--network=none`, `--read-only`, dropped Linux capabilities, `no-new-privileges`, PID/memory/CPU limits, and a single writable workspace bind mount. The runner verifies the image is already local and uses `--pull=never`; it fails closed if Docker or the image is unavailable and never silently runs on the host. The image must include project dependencies and test tools.
+For an operator-selected local image, the fixed test runner can use Docker with `--network=none`, a read-only root filesystem, a non-root UID, dropped Linux capabilities, `no-new-privileges`, PID/memory/CPU limits, a read-only workspace bind mount, and a temporary writable `/tmp`. The runner verifies the image is already local and uses `--pull=never`; it fails closed if Docker or the image is unavailable and never silently runs on the host. The image must include project dependencies and test tools. The workspace mount is read-only to prevent a test from rewriting the host checkout; tests that need scratch space must use the container temporary directory.
 
 This is not a perfect security boundary: the Docker daemon, kernel, image contents, mounted workspace, and test process remain in the trust model. Use a dedicated daemon and reviewed image for hostile code. Live Docker execution must be validated on the target host. The default `trusted` mode is not sandboxed.
 
