@@ -389,6 +389,16 @@ def test_mcp_tool_call_errors_are_not_reported_as_success(
 
     class Process:
         stdin = None
+        pid = None
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
 
     class Client:
         def __init__(self, process, timeout):
