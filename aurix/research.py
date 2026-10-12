@@ -170,6 +170,8 @@ class PublicIPPinningTransport(httpx.BaseTransport):
             return httpx.Response(
                 response.status, headers=response.getheaders(), content=content, request=request
             )
+        except OSError as exc:
+            raise httpx.ConnectError("Pinned research connection failed", request=request) from exc
         finally:
             connection.close()
 
