@@ -117,6 +117,10 @@ aurix --benchmark benchmarks/smoke.json --benchmark-repetitions 3 \
 
 The comparison is descriptive, not a significance test. Hold model/provider, prompt configuration, hardware, and runtime settings constant where possible. Criteria-based acceptance and estimated token counts do not establish semantic correctness or billing cost.
 
+### REA-assisted research of open-source agent harnesses
+
+AURIX includes a bounded adapter for the external REA CLI and a documented workflow for studying public AI coding agents and model harnesses. The research process pins upstream revisions, checks licenses, records file-level evidence, separates observations from inference, and requires isolated experiments before adopting runtime behavior. Start with the [research guide](docs/reverse-engineering/README.md), [target catalogue](docs/reverse-engineering/target-catalog.md), [methodology](docs/reverse-engineering/methodology.md), and [evidence schema](docs/reverse-engineering/evidence-schema.md). REA is an analysis adapter, not a sandbox; the target application is not launched by the static JavaScript/Electron analysis command.
+
 ### Project inventory and Git inspection (v0.25.0)
 
 ### Context, token budgets, and cache (v0.39.0)
@@ -130,7 +134,7 @@ The orchestrator bounds approximate input context, preserving the task header an
 - `AURIX_CACHE_MAX_ENTRIES=128`: maximum cached responses.
 - `AURIX_CACHE_TTL_SECONDS=300`: cache lifetime.
 
-The cache never stores tool-call responses, is memory-only, and keys entries by provider/model, exact prompt, and a workspace file metadata fingerprint. Any detected workspace change invalidates a prior answer. Cache hits are still limited to exact prompt matches; disable with `AURIX_CACHE_ENABLED=false` when responses must always be freshly generated. Token counts are estimates, not provider billing figures. Context compaction is visible in trace/telemetry.
+The cache never stores tool-call responses, is memory-only, and keys entries by provider/model, exact prompt, and a bounded content-aware workspace fingerprint. Content is hashed within per-file and total byte budgets; oversized files use a metadata fallback, so this remains a bounded heuristic rather than a cryptographic snapshot of every byte. Cache hits are still limited to exact prompt matches; disable with `AURIX_CACHE_ENABLED=false` when responses must always be freshly generated. Token counts are estimates, not provider billing figures. Context compaction is visible in trace/telemetry.
 
 ### Large-document analysis (v0.40.0)
 
