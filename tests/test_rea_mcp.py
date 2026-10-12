@@ -193,3 +193,54 @@ def test_mcp_stdout_rejects_oversized_line_before_json_parse(monkeypatch):
     client._read_stdout()
     assert client._messages.get_nowait() == rea_mcp._OVERSIZED_MESSAGE
     assert process.terminated is True
+
+
+def test_mcp_stdout_accepts_frame_at_exact_payload_limit(monkeypatch):
+    monkeypatch.setattr(rea_mcp, "MAX_MCP_MESSAGE_CHARS", 4)
+
+    class Stream:
+        def __init__(self):
+            self.items = iter(["1234\\n", ""])
+
+        def readline(self, size):
+            return next(self.items)
+
+    class Process:
+        stdout = Stream()
+
+        def terminate(self):
+            raise AssertionError("valid frame must not terminate the process")
+
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.process = Process()
+    client._messages = queue.Queue(maxsize=2)
+    client._read_stdout()
+
+    assert client._messages.get_nowait() == "1234"
+    assert client._messages.get_nowait() is None
+
+
+def test_mcp_stdout_preserves_oversized_error_when_queue_is_full(monkeypatch):
+    monkeypatch.setattr(rea_mcp, "MAX_MCP_MESSAGE_CHARS", 4)
+
+    class Stream:
+        def readline(self, size):
+            return "12345\\n"
+
+    class Process:
+        stdout = Stream()
+        terminated = False
+
+        def terminate(self):
+            self.terminated = True
+
+    process = Process()
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.process = process
+    client._messages = queue.Queue(maxsize=1)
+    client._messages.put_nowait("stale")
+
+    client._read_stdout()
+
+    assert process.terminated is True
+    assert client._messages.get_nowait() == rea_mcp._OVERSIZED_MESSAGE
