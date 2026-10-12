@@ -107,7 +107,7 @@ def _validate_patch(workspace: Path, patch: str) -> list[str]:
             if header_path.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", header_path):
                 raise PermissionError("Absolute paths are not allowed")
             parts = Path(header_path).parts
-            if not header_path or any(part in {"..", ".git", ".aurix"} for part in parts):
+            if not header_path or any(part == ".." or part.casefold() in {".git", ".aurix"} for part in parts):
                 raise PermissionError("Unsafe path in patch")
             if Path(header_path).name.lower() in SENSITIVE_NAMES or Path(
                 header_path
