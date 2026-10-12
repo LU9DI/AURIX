@@ -301,3 +301,31 @@ def test_mcp_stdout_does_not_block_when_message_queue_is_full(monkeypatch):
 
     assert process.terminated is True
     assert client._messages.get_nowait() == rea_mcp._OVERSIZED_MESSAGE
+
+
+def test_mcp_request_fails_fast_on_malformed_jsonrpc_stdout():
+    class Stdin:
+        def write(self, wire):
+            pass
+
+        def flush(self):
+            pass
+
+    class Process:
+        stdin = Stdin()
+
+        def poll(self):
+            return None
+
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.process = Process()
+    client.timeout = 1
+    import time
+
+    client.deadline = time.monotonic() + 1
+    client._next_id = 1
+    client._messages = queue.Queue(maxsize=2)
+    client._messages.put_nowait("not-json")
+
+    with pytest.raises(ValueError, match="malformed JSON-RPC"):
+        client.request("initialize")
