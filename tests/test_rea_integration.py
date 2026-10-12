@@ -401,20 +401,20 @@ def test_posix_process_group_signal_reaches_real_descendant(signal_tree, tmp_pat
     child_started = tmp_path / "child-started"
     child_terminated = tmp_path / "child-terminated"
     child_code = (
-        "import signal,sys,time\\n"
-        "from pathlib import Path\\n"
-        f"marker=Path({str(child_terminated)!r})\\n"
-        "def stop(signum, frame):\\n"
-        " marker.write_text('received', encoding='utf-8')\\n"
-        " raise SystemExit(0)\\n"
-        "signal.signal(signal.SIGTERM, stop)\\n"
-        f"Path({str(child_started)!r}).write_text('ready', encoding='utf-8')\\n"
-        "while True: time.sleep(0.05)\\n"
+        "import signal,sys,time\n"
+        "from pathlib import Path\n"
+        f"marker=Path({str(child_terminated)!r})\n"
+        "def stop(signum, frame):\n"
+        " marker.write_text('received', encoding='utf-8')\n"
+        " raise SystemExit(0)\n"
+        "signal.signal(signal.SIGTERM, stop)\n"
+        f"Path({str(child_started)!r}).write_text('ready', encoding='utf-8')\n"
+        "while True: time.sleep(0.05)\n"
     )
     parent_code = (
-        "import subprocess,sys,time\\n"
-        f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\\n"
-        "while True: time.sleep(0.05)\\n"
+        "import subprocess,sys,time\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+        "while True: time.sleep(0.05)\n"
     )
     process = subprocess.Popen(
         [sys.executable, "-c", parent_code],
