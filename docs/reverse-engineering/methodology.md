@@ -14,6 +14,8 @@ Classify components as one or more of:
 
 ## 2. Map before interpreting
 
+For a complete public source repository, do not start by invoking REA merely because the project is an AI agent. Follow the repository's entry points, provider adapter, prompt/context construction, tool dispatch, authorization, edit application, and tests using source-aware repository tools. REA's upstream skill makes this distinction explicitly. Use REA for the shipped artifact or runtime behavior when static source alone cannot answer the question.
+
 Start with package manifests, entry points, public interfaces, tests, and CI. Then trace the narrowest end-to-end path that answers the research question. Prefer static analysis and source inspection. Do not infer production guarantees from README claims alone.
 
 For each behavior, capture:
