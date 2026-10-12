@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
+import signal
 import subprocess
 import threading
 import time
@@ -19,6 +21,22 @@ MAX_MCP_TIMEOUT_SECONDS = 240
 _MAX_QUEUED_MCP_MESSAGES = 16
 _OVERSIZED_MESSAGE = "__AURIX_REA_MCP_OVERSIZED_MESSAGE__"
 READ_ONLY_MCP_TOOLS = {"binary_session", "binary_overview"}
+
+
+def _signal_process_tree(process: subprocess.Popen[str], *, force: bool = False) -> None:
+    """Stop the dedicated REA process group where supported; fall back to the child."""
+    if os.name == "posix" and isinstance(getattr(process, "pid", None), int):
+        try:
+            os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
+            return
+        except ProcessLookupError:
+            return
+        except OSError:
+            pass
+    try:
+        process.kill() if force else process.terminate()
+    except (OSError, ProcessLookupError):
+        pass
 
 
 class _StdioMCP:
@@ -87,10 +105,7 @@ class _StdioMCP:
                     not has_newline and len(line) >= MAX_MCP_MESSAGE_CHARS + 2
                 ):
                     self._enqueue_terminal(_OVERSIZED_MESSAGE)
-                    try:
-                        self.process.terminate()
-                    except OSError:
-                        pass
+                    _signal_process_tree(self.process)
                     return
                 if not has_newline:
                     # EOF in the middle of a JSON-RPC frame is a protocol error.
@@ -175,15 +190,12 @@ class _StdioMCP:
                 self.process.stdin.close()
             except OSError:
                 pass
+        _signal_process_tree(self.process)
         try:
             self.process.wait(timeout=2)
         except subprocess.TimeoutExpired:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=2)
+            _signal_process_tree(self.process, force=True)
+            self.process.wait(timeout=2)
 
 
 def investigate_binary_with_rea_mcp(
@@ -223,6 +235,7 @@ def investigate_binary_with_rea_mcp(
         cwd=root,
         env=_child_environment(),
         shell=False,
+        start_new_session=(os.name == "posix"),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
