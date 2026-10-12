@@ -15,6 +15,9 @@ IGNORED_DIRS = {
     ".azure",
     ".gnupg",
     ".docker",
+    ".kube",
+    ".terraform",
+    ".pulumi",
 }
 SENSITIVE_NAMES = {
     ".env",
@@ -31,6 +34,11 @@ SENSITIVE_NAMES = {
     "secrets.json",
     "token",
     "token.json",
+    ".vault-token",
+    "terraform.tfstate",
+    "kubeconfig",
+    "service-account.json",
+    "application_default_credentials.json",
 }
 SENSITIVE_DIRS = {".ssh", ".aws", ".azure", ".gnupg", ".docker"}
 TEXT_SUFFIXES = {
@@ -100,7 +108,7 @@ def _is_sensitive(path: Path) -> bool:
     return (
         name in SENSITIVE_NAMES
         or (name.startswith((".env.", "id_")) and not name.endswith(".pub"))
-        or name.endswith((".pem", ".key", ".p12", ".pfx", ".kdbx", ".secret", ".token"))
+        or name.endswith((".pem", ".key", ".p12", ".pfx", ".kdbx", ".secret", ".token", ".tfstate", ".tfstate.backup", ".credentials"))
         or bool(parent_parts & SENSITIVE_DIRS)
     )
 
