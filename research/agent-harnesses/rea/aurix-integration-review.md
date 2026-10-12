@@ -97,3 +97,6 @@ R-01 mitigation was committed on `main` in commits `95ffbd8`, `0360499`, `a27df1
 
 
 **MCP stderr-flood verification (2026-10-12):** commit [0a6110f](https://github.com/LU9DI/AURIX/commit/0a6110f5b943869a08412c21074f184d18fd1fba) passed [CI run 38322645892](https://github.com/LU9DI/AURIX/actions/runs/38322645892): compile, Ruff, and 326 tests passed in 14.76 seconds. A real child writes more than the configured stderr cap; the test waits for the reader to finish and confirms the retained tail is bounded and preserves the final sentinel. This is a POSIX CI verification, not cross-platform evidence.
+
+
+**MCP response-correlation verification (2026-10-12):** commit [39744f5](https://github.com/LU9DI/AURIX/commit/39744f5dadc8281e0960c40a51d16f073d6144d9) passed [CI run 38322746664](https://github.com/LU9DI/AURIX/actions/runs/38322746664): compile and Ruff passed; 327 tests passed in 14.02 seconds. A protocol regression test feeds an unsolicited notification and a response with a mismatched ID before the matching response; the client ignores unrelated frames and returns only the result associated with the active request. This covers correlation correctness, while sustained unsolicited-message floods remain bounded by the queue/backpressure policy rather than exhaustively stress-tested in this case.
