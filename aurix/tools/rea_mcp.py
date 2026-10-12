@@ -37,26 +37,44 @@ class _StdioMCP:
         self._reader.start()
         self._stderr_reader.start()
 
+    def _enqueue_terminal(self, message: str | None) -> None:
+        """Signal the reader outcome without blocking behind a full queue."""
+        try:
+            self._messages.put_nowait(message)
+        except queue.Full:
+            try:
+                self._messages.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self._messages.put_nowait(message)
+            except queue.Full:
+                pass
+
     def _read_stdout(self) -> None:
         """Read bounded newline-delimited frames, rejecting oversized lines early."""
         assert self.process.stdout is not None
         try:
             while True:
+                # The extra two characters cover a possible CRLF terminator.
                 line = self.process.stdout.readline(MAX_MCP_MESSAGE_CHARS + 2)
                 if not line:
                     break
-                payload = line.rstrip("\\r\\n")
+                has_newline = line.endswith("\n")
+                payload = line[:-1] if has_newline else line
+                if payload.endswith("\r"):
+                    payload = payload[:-1]
                 if len(payload) > MAX_MCP_MESSAGE_CHARS or (
-                    not line.endswith("\\n") and len(line) > MAX_MCP_MESSAGE_CHARS
+                    not has_newline and len(line) >= MAX_MCP_MESSAGE_CHARS + 2
                 ):
-                    self._messages.put(_OVERSIZED_MESSAGE)
+                    self._enqueue_terminal(_OVERSIZED_MESSAGE)
                     self.process.terminate()
                     return
                 self._messages.put(payload)
         except (OSError, ValueError):
             pass
         finally:
-            self._messages.put(None)
+            self._enqueue_terminal(None)
 
     def _read_stderr(self) -> None:
         assert self.process.stderr is not None
