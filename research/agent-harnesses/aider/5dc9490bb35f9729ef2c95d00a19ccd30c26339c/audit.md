@@ -131,7 +131,23 @@ The current `aurix/tools/workspace.py::safe_path` explicitly checks each lexical
 
 ## Third-pass action list
 
-- [ ] Add resource-budget tests for both TTY and non-TTY command execution paths.
+- [ ] For Aider itself, add resource-budget tests for both TTY and non-TTY command execution paths (not executed in this static review).
 - [ ] Verify how command output truncation and non-zero exit handling interact with model context.
-- [ ] In AURIX, close the REA adapter's analogous pre-truncation buffering gap before describing output as memory-bounded.
+- [x] In AURIX's REA CLI adapter, verify bounded retained stdout/stderr and cleanup with real flood/timeout child-process tests; this does not establish an OS-level or whole-process-tree memory bound.
 - [ ] Keep static observations, likely risks, and confirmed exploitability as separate categories in future reports.
+
+
+## Fourth-pass verification note: resource budgets in AURIX
+
+**Date:** 2026-10-12. This is a validation result for AURIX's analogous subprocess boundary, not a dynamic test of Aider.
+
+- Added real-process coverage that continuously writes to both stdout and stderr, asserts each retained buffer remains within its configured byte cap, and confirms the process is reaped after the combined output budget is exceeded.
+- Added a separate real silent-child timeout test that verifies the timed-out process is reaped.
+- CI: [run 38322382715](https://github.com/LU9DI/AURIX/actions/runs/38322382715), commit [26a9831](https://github.com/LU9DI/AURIX/commit/26a9831251df50b1a16b4007ba989dc619ae6fa5): compile and Ruff passed; 325 tests passed in 16.12 seconds.
+- Limits: executed on the CI POSIX environment; does not prove equivalent Windows behavior, cap the operating system's transient pipe buffers, or replace an OS-level sandbox.
+
+## Next Aider-specific investigation
+
+- Trace the full approval/configuration flow for /run, /test, /git, and model-suggested commands, including non-interactive and auto-test settings.
+- Inspect patch parser/apply tests for absolute paths, traversal, symlinked parent components, duplicate actions, and failure after a prior file mutation.
+- Keep source observations distinct from demonstrated exploitability; do not execute Aider or repository-supplied commands as part of the static audit.
