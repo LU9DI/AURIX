@@ -17,3 +17,11 @@ class MemoryStore(Protocol):
     ) -> list[dict[str, Any]]:
         """Return recent matching records, optionally constrained to a scope."""
         ...
+
+    def delete(self, memory_id: int, *, scope: str | None = None) -> bool:
+        """Delete one record, optionally requiring that it belongs to a scope."""
+        ...
+
+    def clear(self, *, scope: str | None = None) -> int:
+        """Delete all records, or all records in one scope; return the count."""
+        ...

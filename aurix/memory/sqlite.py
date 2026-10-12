@@ -55,3 +55,19 @@ class SQLiteMemory:
             rows = conn.execute(sql, params).fetchall()
         return [{"id": r["id"], "scope": r["scope"], "content": r["content"],
                  "metadata": json.loads(r["metadata"]), "created_at": r["created_at"]} for r in rows]
+
+    def delete(self, memory_id: int, *, scope: str | None = None) -> bool:
+        if isinstance(memory_id, bool) or not isinstance(memory_id, int) or memory_id < 1:
+            raise ValueError("memory_id must be a positive integer")
+        with self._connect() as conn:
+            if scope is None:
+                cursor = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+            else:
+                cursor = conn.execute("DELETE FROM memories WHERE id = ? AND scope = ?", (memory_id, scope))
+            return cursor.rowcount == 1
+
+    def clear(self, *, scope: str | None = None) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM memories" if scope is None else "DELETE FROM memories WHERE scope = ?",
+                                  () if scope is None else (scope,))
+            return int(cursor.rowcount)

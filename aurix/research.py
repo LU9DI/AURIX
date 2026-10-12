@@ -6,6 +6,7 @@ All fetched content is untrusted evidence and must be reviewed by the study mode
 """
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import re
@@ -53,7 +54,8 @@ def clean_html(html: str, *, max_chars: int = 6000) -> str:
     return text[:max(100, min(int(max_chars), 20000))]
 
 
-def _assert_public_http_url(url: str) -> None:
+def _resolve_public_addresses(url: str) -> list[str]:
+    """Resolve once and return only addresses safe to pin for the actual connection."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
         raise ValueError("Only absolute HTTP(S) URLs without credentials are allowed")
@@ -61,13 +63,75 @@ def _assert_public_http_url(url: str) -> None:
     if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal", ".localhost")):
         raise ValueError("Private/local hostnames are not allowed as research targets")
     try:
-        addresses = {ipaddress.ip_address(host)} if _is_ip(host) else {
-            ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
-        }
+        addresses = [ipaddress.ip_address(host)] if _is_ip(host) else [
+            ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(
+                host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM
+            )
+        ]
     except (OSError, ValueError) as exc:
         raise ValueError("Research target hostname could not be resolved safely") from exc
     if not addresses or any(not addr.is_global for addr in addresses):
         raise ValueError("Research targets must resolve only to public IP addresses")
+    return list(dict.fromkeys(str(address) for address in addresses))
+
+
+def _assert_public_http_url(url: str) -> None:
+    """Validate resolved addresses; requests must pin a validated address too."""
+    _resolve_public_addresses(url)
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, host: str, port: int, pinned_ip: str, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout)
+        self.pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self.pinned_ip, self.port), self.timeout, self.source_address)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host: str, port: int, pinned_ip: str, timeout: float) -> None:
+        super().__init__(host, port, timeout=timeout)
+        self.pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        raw_socket = socket.create_connection((self.pinned_ip, self.port), self.timeout, self.source_address)
+        self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+
+
+class PublicIPPinningTransport(httpx.BaseTransport):
+    """Pin each research request to a validated public IP and preserve TLS hostname checks."""
+
+    _MAX_RESPONSE_BYTES = 2_000_001
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        parsed = urlparse(url)
+        addresses = _resolve_public_addresses(url)
+        host = parsed.hostname
+        if host is None:
+            raise ValueError("Research URL has no hostname")
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        timeouts = request.extensions.get("timeout") or {}
+        timeout = max(0.1, float(timeouts.get("connect") or timeouts.get("read") or 5.0))
+        connection = (_PinnedHTTPSConnection(host, port, addresses[0], timeout) if parsed.scheme == "https"
+                      else _PinnedHTTPConnection(host, port, addresses[0], timeout))
+        headers = dict(request.headers)
+        headers["Host"] = parsed.netloc
+        headers["Connection"] = "close"
+        raw_path = request.url.raw_path
+        target = raw_path.decode("ascii") if isinstance(raw_path, bytes) else str(raw_path)
+        body = request.content if request.method.upper() not in {"GET", "HEAD"} else None
+        try:
+            connection.request(request.method, target or "/", body=body, headers=headers)
+            response = connection.getresponse()
+            content = response.read(self._MAX_RESPONSE_BYTES)
+            return httpx.Response(response.status, headers=response.getheaders(), content=content, request=request)
+        finally:
+            connection.close()
+
+    def close(self) -> None:
+        return None
 
 
 def _is_ip(host: str) -> bool:
@@ -122,7 +186,11 @@ class SearxResearchAdapter:
         if not query:
             return ""
         timeout = httpx.Timeout(self.timeout_seconds, connect=min(4.0, self.timeout_seconds))
-        with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "AURIX-Research/0.50 (+public documentation research)"}) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False,
+                           headers={"User-Agent": "AURIX-Research/0.50 (+public documentation research)"}) as client, \
+             httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False,
+                           transport=PublicIPPinningTransport(),
+                           headers={"User-Agent": "AURIX-Research/0.50 (+public documentation research)"}) as page_client:
             _, _, search_bytes = _get_limited(
                 client, self.base_url + "/search?" + urlencode({"q": query, "format": "json", "language": "en"}),
                 max_bytes=1_500_000, headers={"Accept": "application/json"}, timeout=self.timeout_seconds)
@@ -137,16 +205,17 @@ class SearxResearchAdapter:
                     continue
                 title = str(item.get("title", "Untitled"))[:300]
                 snippet = str(item.get("content", ""))[:1200]
+                section = f"SOURCE: {url}\nTITLE: {title}\nSEARCH SNIPPET: {snippet}"
                 body = ""
                 if self.fetch_pages:
                     try:
                         _assert_public_http_url(url)
-                        if not _robots_allows(client, url, self.timeout_seconds):
+                        if not _robots_allows(page_client, url, self.timeout_seconds):
                             blocks.append(section + "\nPAGE EXTRACT: Skipped because robots.txt disallows this crawler or could not be checked safely.")
                             continue
                         # No redirect following: every redirect target requires a fresh policy check.
                         page_status, page_headers, page_bytes = _get_limited(
-                            client, url, max_bytes=2_000_000,
+                            page_client, url, max_bytes=2_000_000,
                             headers={"Accept": "text/html,text/plain,text/markdown,application/xhtml+xml"},
                             timeout=self.timeout_seconds)
                         if page_status == 200:
@@ -158,7 +227,6 @@ class SearxResearchAdapter:
                                 body = page_bytes.decode("utf-8", errors="replace")[:5000]
                     except (ValueError, httpx.HTTPError, UnicodeError):
                         body = ""
-                section = f"SOURCE: {url}\nTITLE: {title}\nSEARCH SNIPPET: {snippet}"
                 if body:
                     section += f"\nPAGE EXTRACT: {body}"
                 blocks.append(section)

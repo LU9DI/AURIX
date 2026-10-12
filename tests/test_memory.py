@@ -137,3 +137,22 @@ def test_memory_accepts_legacy_custom_metadata(tmp_path):
     assert memory.search("Legacy", scope="repo:demo")[0]["metadata"] == {
         "source": "old-client", "custom": 7
     }
+
+
+def test_memory_delete_and_clear_are_scope_limited(tmp_path):
+    memory = SQLiteMemory(tmp_path / "memory.db")
+    first = memory.add("repo:one", "first memory")
+    second = memory.add("repo:one", "second memory")
+    other = memory.add("repo:two", "other memory")
+    assert memory.delete(first, scope="repo:wrong") is False
+    assert memory.delete(first, scope="repo:one") is True
+    assert memory.delete(first) is False
+    assert [item["id"] for item in memory.search("memory", scope="repo:one")] == [second]
+    assert memory.clear(scope="repo:one") == 1
+    assert [item["id"] for item in memory.search("memory")] == [other]
+
+
+def test_memory_delete_rejects_invalid_identifier(tmp_path):
+    memory = SQLiteMemory(tmp_path / "memory.db")
+    with pytest.raises(ValueError, match="positive integer"):
+        memory.delete(True)

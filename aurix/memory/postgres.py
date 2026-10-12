@@ -46,3 +46,21 @@ class PostgresMemory:
             else:
                 rows = conn.execute("SELECT id,scope,content,metadata,created_at FROM aurix_memories WHERE content ILIKE %s ORDER BY id DESC LIMIT %s", (pattern, limit)).fetchall()
         return [{"id": r[0], "scope": r[1], "content": r[2], "metadata": r[3], "created_at": r[4].isoformat()} for r in rows]
+
+    def delete(self, memory_id: int, *, scope: str | None = None) -> bool:
+        if isinstance(memory_id, bool) or not isinstance(memory_id, int) or memory_id < 1:
+            raise ValueError("memory_id must be a positive integer")
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM aurix_memories WHERE id = %s" if scope is None else
+                "DELETE FROM aurix_memories WHERE id = %s AND scope = %s",
+                (memory_id,) if scope is None else (memory_id, scope),
+            )
+            return cursor.rowcount == 1
+
+    def clear(self, *, scope: str | None = None) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM aurix_memories" if scope is None else
+                                  "DELETE FROM aurix_memories WHERE scope = %s",
+                                  () if scope is None else (scope,))
+            return int(cursor.rowcount)
