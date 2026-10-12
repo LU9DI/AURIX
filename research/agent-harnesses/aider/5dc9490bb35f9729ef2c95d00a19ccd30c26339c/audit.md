@@ -186,3 +186,15 @@ The review now confirms a meaningful distinction between interactive command con
 - **Regression coverage:** a test creates `.GIT/config` and `.VENV/credentials.txt` sentinels and verifies workspace context building, listing, search, direct text reads, and line reads all exclude or reject those targets.
 - **Verification status:** code and test changes are published in commits [da4714e](https://github.com/LU9DI/AURIX/commit/da4714e2b39a275c1c53b888a00a8460fca25081) and [94097bd](https://github.com/LU9DI/AURIX/commit/94097bd917e639dd95c3901fdc829eba4a4eb4ab). CI passed on the test commit: [run 38324001478](https://github.com/LU9DI/AURIX/actions/runs/38324001478), with compile and Ruff passing and 328 tests passing in 10.89 seconds.
 - **Residual limitation:** this is defense-in-depth for path-policy consistency, not a solution to check/use races if an attacker can mutate the workspace filesystem concurrently. Descriptor-relative safe opening or an OS isolation boundary needs separate design and platform-specific testing.
+
+
+## Seventh-pass finding: case-variant protected paths in patch proposals
+
+**Date:** 2026-10-12. This is an AURIX patch-validation finding arising from the file-integrity review, not a claim about Aider's implementation.
+
+- **Issue:** `aurix/tools/patches.py::_validate_patch` rejected `.git` and `.aurix` path components using case-sensitive equality. That policy was inconsistent with the workspace reader's newly hardened case-insensitive exclusions and could behave differently across filesystem semantics.
+- **Fix:** compare protected path components with `casefold()` so case variants of `.git` and `.aurix` are refused during patch preflight.
+- **Regression coverage:** parameterized tests submit patches targeting `.GIT/config` and `.AURIX/proposals/payload.diff`, expect rejection before application, and verify the tracked source file remains unchanged.
+- **Commits:** [fix `3dc8824`](https://github.com/LU9DI/AURIX/commit/3dc8824c848f67ab8b3bd81cf15a6fb305aa41d3) and [tests `0df5248`](https://github.com/LU9DI/AURIX/commit/0df524825451c383a26b9286ceafca9bd5ddb78a).
+- **Verification:** CI runs [38324175385](https://github.com/LU9DI/AURIX/actions/runs/38324175385) and [38324189933](https://github.com/LU9DI/AURIX/actions/runs/38324189933) were still running when this note was prepared; update status after completion.
+- **Limit:** this is path-policy defense in depth. It does not eliminate filesystem check/use races caused by concurrent external actors, nor does it claim that a malicious filesystem mutation was demonstrated.
