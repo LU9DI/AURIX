@@ -682,3 +682,32 @@ def test_mcp_rejects_unsupported_negotiated_protocol_version(monkeypatch, tmp_pa
 
     assert clients and clients[0].calls == ["initialize"]
     assert clients[0].closed is True
+
+
+
+def test_mcp_request_rejects_wrong_jsonrpc_version():
+    class Stdin:
+        def write(self, wire):
+            pass
+
+        def flush(self):
+            pass
+
+    class Process:
+        stdin = Stdin()
+
+        def poll(self):
+            return None
+
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.process = Process()
+    client.timeout = 1
+    import time
+
+    client.deadline = time.monotonic() + 1
+    client._next_id = 1
+    client._messages = queue.Queue(maxsize=2)
+    client._messages.put_nowait(json.dumps({"jsonrpc": "1.0", "id": 1, "result": {}}))
+
+    with pytest.raises(ValueError, match="invalid JSON-RPC version"):
+        client.request("initialize")
