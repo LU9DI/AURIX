@@ -1724,3 +1724,29 @@ def test_apply_terminal_journal_failure_is_reported_as_interrupted(tmp_path, mon
     inventory = patches.inspect_transactions(root)
     row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
     assert row["status"] == "manual_intervention_required"
+
+
+def test_audit_gate_rejects_non_boolean_passing_result(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    _write_passing_audit(root, proposal_id)
+    path = root / ".aurix" / "audits" / f"{proposal_id}.json"
+    audit = json.loads(path.read_text(encoding="utf-8"))
+    audit["verification"]["test_result"]["passed"] = "false"
+    verification = audit["verification"]
+    evidence = {
+        key: verification.get(key)
+        for key in (
+            "audit_id", "verification_id", "proposal_id", "proposal_sha256",
+            "base_commit", "target_state_sha256", "suite", "requested_suite",
+            "test_selection", "isolation", "sandbox_image", "sandbox_image_id",
+            "runtime_fingerprint", "baseline_result", "test_result", "regression_status",
+        )
+    }
+    verification["evidence_sha256"] = hashlib.sha256(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+    path.write_text(json.dumps(audit), encoding="utf-8")
+
+    with pytest.raises(PermissionError, match="exact patch"):
+        apply_proposal(root, proposal_id, confirm=True, require_audit_gate=True)
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
