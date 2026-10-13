@@ -187,3 +187,23 @@ def test_workspace_ignored_directories_are_case_insensitive(tmp_path):
             read_text(tmp_path, relative)
         with pytest.raises(PermissionError, match="ignored"):
             read_text_lines(tmp_path, relative)
+
+
+
+def test_search_text_rejects_nonpositive_or_noninteger_file_limits(tmp_path):
+    from aurix.tools.workspace import search_text
+
+    (tmp_path / "main.py").write_text("safe", encoding="utf-8")
+    for value in (0, -1, True, 1.5):
+        with pytest.raises(ValueError, match="max_file_bytes must be a positive integer"):
+            search_text(tmp_path, "safe", max_file_bytes=value)
+
+
+def test_guarded_reader_rejects_invalid_byte_limits(tmp_path):
+    from aurix.tools.workspace import _read_regular_file_no_follow
+
+    target = tmp_path / "main.py"
+    target.write_text("safe", encoding="utf-8")
+    for value in (0, -1, True, 1.5):
+        with pytest.raises(ValueError, match="max_bytes must be a positive integer"):
+            _read_regular_file_no_follow(target, max_bytes=value)
