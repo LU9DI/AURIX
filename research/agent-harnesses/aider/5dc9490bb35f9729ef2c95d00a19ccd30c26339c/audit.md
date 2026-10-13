@@ -198,3 +198,13 @@ The review now confirms a meaningful distinction between interactive command con
 - **Commits:** [fix `3dc8824`](https://github.com/LU9DI/AURIX/commit/3dc8824c848f67ab8b3bd81cf15a6fb305aa41d3) and [tests `0df5248`](https://github.com/LU9DI/AURIX/commit/0df524825451c383a26b9286ceafca9bd5ddb78a).
 - **Verification:** CI passed: [fix run 38324175385](https://github.com/LU9DI/AURIX/actions/runs/38324175385) and [test run 38324189933](https://github.com/LU9DI/AURIX/actions/runs/38324189933). The test run passed compile and Ruff and completed **330 tests in 13.86 seconds**.
 - **Limit:** this is path-policy defense in depth. It does not eliminate filesystem check/use races caused by concurrent external actors, nor does it claim that a malicious filesystem mutation was demonstrated.
+
+
+
+## Eighth-pass verification: symlinked parent directory in patch targets
+
+- **Regression scenario:** a proposal addresses `alias/app.py`, where `alias` is a directory symlink pointing back into the workspace. Even though the final file is a tracked regular file and the symlink resolves inside the repository, the patch preflight must reject the path instead of accepting an alias.
+- **Result:** added `test_apply_rejects_patch_target_through_symlinked_parent`; the test verifies refusal before patch application and confirms the tracked source remains unchanged. Platforms that cannot create directory symlinks skip this specific test.
+- **CI:** [run 38325373901](https://github.com/LU9DI/AURIX/actions/runs/38325373901) passed compile and Ruff and completed **331 tests in 15.86 seconds**.
+- **Commit:** [776220d](https://github.com/LU9DI/AURIX/commit/776220dab8ad4f29e1d180fd217221fd1dfbb807).
+- **Scope:** this validates static symlink-parent rejection. It does not close a TOCTOU race if an external actor replaces a checked path between validation and the later Git operation.
