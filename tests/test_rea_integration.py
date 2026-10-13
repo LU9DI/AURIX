@@ -503,12 +503,13 @@ def test_rea_parent_exit_does_not_leave_pipe_holding_descendant(monkeypatch, tmp
         "ready.write_text('ready'); time.sleep(30)"
     )
     parent = (
-        "import subprocess,sys,time; "
-        "from pathlib import Path; "
-        "subprocess.Popen([sys.executable, '-c', " + repr(child) + "]); "
-        f"ready=Path({str(ready)!r}); "
-        "deadline=time.monotonic()+5; "
-        "while not ready.exists() and time.monotonic()<deadline: time.sleep(0.01)"
+        "import subprocess,sys,time\n"
+        "from pathlib import Path\n"
+        "subprocess.Popen([sys.executable, '-c', " + repr(child) + "])\n"
+        f"ready=Path({str(ready)!r})\n"
+        "deadline=time.monotonic()+5\n"
+        "while not ready.exists() and time.monotonic()<deadline:\n"
+        " time.sleep(0.01)\n"
     )
     result = rea._run_bounded(
         [sys.executable, "-c", parent],
