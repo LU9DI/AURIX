@@ -1880,7 +1880,7 @@ def test_inspection_rejects_valid_chain_with_wrong_patch_digest(tmp_path):
     previous = event["previous_hash"]
     events[-1]["event_hash"] = hashlib.sha256((previous + canonical).encode("utf-8")).hexdigest()
     audit_path.write_text(
-        "".join(json.dumps(item, sort_keys=True, ensure_ascii=False) + "\\n" for item in events),
+        "".join(json.dumps(item, sort_keys=True, ensure_ascii=False) + "\n" for item in events),
         encoding="utf-8",
     )
 
