@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -35,12 +36,13 @@ def test_rea_runs_only_static_analysis_without_shell(monkeypatch, tmp_path):
 
     assert result["status"] == "completed"
     assert result["evidence"]["modules"] == 3
-    assert captured["argv"] == [
+    assert captured["argv"][:2] == [
         "/usr/local/bin/rea",
         "analyze-javascript-application",
-        str(app),
-        "--json",
     ]
+    staged = Path(captured["argv"][2])
+    assert staged != app
+    assert not staged.exists()  # temporary staging is removed after the child exits
     assert captured["timeout"] == 90
     assert captured["env"] == {"PATH": "/usr/bin"}
     assert result["application_executed"] is False
@@ -517,3 +519,42 @@ def test_rea_investigation_rejects_ignored_or_sensitive_targets(tmp_path, relati
 
     with pytest.raises(PermissionError, match="ignored or sensitive"):
         rea.investigate_with_rea(tmp_path, "analyze", path=relative_path)
+
+
+def test_rea_directory_staging_excludes_secrets_ignored_dirs_and_symlinks(tmp_path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "src").mkdir()
+    (root / "src" / "main.js").write_text("console.log('safe')", encoding="utf-8")
+    (root / ".git").mkdir()
+    (root / ".git" / "config").write_text("secret", encoding="utf-8")
+    (root / ".env").write_text("TOKEN=secret", encoding="utf-8")
+    (root / ".aurix").mkdir()
+    (root / ".aurix" / "transaction.json").write_text("private", encoding="utf-8")
+    (root / "node_modules").mkdir()
+    (root / "node_modules" / "package.js").write_text("ignored", encoding="utf-8")
+    outside = tmp_path / "outside.js"
+    outside.write_text("outside", encoding="utf-8")
+    try:
+        (root / "linked.js").symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pass
+    staged_temp, staged = rea._stage_safe_directory(root)
+    try:
+        assert (staged / "src" / "main.js").read_text(encoding="utf-8") == "console.log('safe')"
+        assert not (staged / ".env").exists()
+        assert not (staged / ".git").exists()
+        assert not (staged / ".aurix").exists()
+        assert not (staged / "node_modules").exists()
+        assert not (staged / "linked.js").exists()
+    finally:
+        staged_temp.cleanup()
+
+
+def test_rea_directory_staging_enforces_file_budget(monkeypatch, tmp_path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "one.js").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(rea, "MAX_STAGED_FILES", 0)
+    with pytest.raises(ValueError, match="staging exceeded"):
+        rea._stage_safe_directory(root)
