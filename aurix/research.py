@@ -354,9 +354,14 @@ def _robots_allows(client: httpx.Client, url: str, timeout_seconds: float) -> bo
     # Treat HTML challenge pages and unexpected proxy responses as policy uncertainty.
     if robots_headers.get("content-type", "").split(";", 1)[0].strip().lower() != "text/plain":
         return False
+    try:
+        robots_text = robots_bytes.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        # Invalid policy encoding is ambiguous; do not reinterpret it permissively.
+        return False
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(robots_url)
-    parser.parse(robots_bytes.decode("utf-8", errors="replace").splitlines())
+    parser.parse(robots_text.splitlines())
     return parser.can_fetch("AURIX-Research", url)
 
 
