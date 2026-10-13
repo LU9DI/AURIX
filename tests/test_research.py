@@ -245,8 +245,8 @@ def test_direct_url_fetch_rejects_unsupported_content_types(monkeypatch, content
         )
 
 
-@pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
-def test_robots_policy_fails_closed_on_non_404_errors(monkeypatch, status):
+@pytest.mark.parametrize("status", [200 + 6, 206, 301, 302, 304, 401, 403, 429, 500, 503])
+def test_robots_policy_fails_closed_on_unexpected_statuses(monkeypatch, status):
     import httpx
 
     from aurix import research
