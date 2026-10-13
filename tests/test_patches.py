@@ -1024,6 +1024,28 @@ def test_recovery_replay_refuses_already_rolled_back_transaction(tmp_path):
     assert journal_path.read_bytes() == terminal_journal
 
 
+
+def test_recovery_accepts_applying_journal_when_exact_patch_is_present(tmp_path):
+    """Recover a crash after git apply but before persisting patch_applied."""
+    from aurix.tools.patches import recover_transaction
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    record = json.loads(journal_path.read_text(encoding="utf-8"))
+    record.update(state="applying", recovery="manual_if_interrupted")
+    journal_path.write_text(json.dumps(record), encoding="utf-8")
+
+    recovered = recover_transaction(root, proposal_id, confirm=True)
+
+    assert recovered["status"] == "recovered"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
+    terminal = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert terminal["state"] == "rolled_back"
+    assert terminal["recovery"] == "verified"
+    assert terminal["recovery_history"][-1]["result"] == "verified"
+
+
 def test_recovery_terminal_journal_write_failure_can_be_finalized_safely(tmp_path, monkeypatch):
     """A crash after rollback but before terminal persistence is reconciled explicitly."""
     from aurix.tools import patches
