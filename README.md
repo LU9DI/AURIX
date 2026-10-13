@@ -305,8 +305,8 @@ See `docs/ARCHITECTURE.md`, `docs/SAFETY.md`, and `CONTRIBUTING.md`.
 6. Multi-agent verification only if ablation benchmarks prove useful.
 7. Public benchmarks for quality, latency, memory, and API/model cost.
 
-## License
-Apache-2.0, pending a final dependency and model-license audit before public release.
+## Licensing status
+This repository is public but currently has no open-source license file or open-source license declaration in package metadata. Public visibility does not itself grant permission to copy, modify, or redistribute the code. Earlier commits, releases, copies, and forks may remain subject to terms that applied when they were obtained; removing the current license file does not retroactively revoke previously granted rights.
 
 ## Run a repeatable smoke benchmark
 
