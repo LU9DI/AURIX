@@ -242,3 +242,14 @@ def test_workspace_walk_prunes_ignored_and_symlink_directories(tmp_path, monkeyp
     assert not any(path.startswith((".git", "node_modules")) for path in visited)
     assert "linked" not in visited
     assert not any("hidden" in path for path in listed)
+
+
+
+def test_workspace_context_rejects_invalid_limits(tmp_path):
+    from aurix.tools.workspace import build_workspace_context
+
+    for value in (0, -1, True, 1.5):
+        with pytest.raises(ValueError, match="max_chars must be a positive integer"):
+            build_workspace_context(tmp_path, max_chars=value)
+        with pytest.raises(ValueError, match="max_files must be a positive integer"):
+            build_workspace_context(tmp_path, max_files=value)
