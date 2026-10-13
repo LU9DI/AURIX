@@ -181,7 +181,10 @@ def _run_bounded(
         thread.start()
     deadline = time.monotonic() + timeout
     timed_out = False
-    while process.poll() is None:
+    # A child can exit while a descendant still holds inherited pipe handles.
+    # Bound pipe-drain completion as well as the direct child's lifetime so a
+    # daemonized descendant cannot outlive this runner unnoticed.
+    while process.poll() is None or any(thread.is_alive() for thread in threads):
         if exceeded.is_set():
             break
         if time.monotonic() >= deadline:
