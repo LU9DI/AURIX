@@ -610,3 +610,12 @@ def test_direct_url_tool_is_disabled_without_allowlist(monkeypatch, tmp_path):
     result = Orchestrator(provider, workspace=tmp_path).run("Read the documentation")
     assert result.status == "completed"
     assert "PermissionError" in provider.prompts[1]
+
+
+def test_verification_enabled_prompt_retains_direct_url_tool(monkeypatch, tmp_path):
+    monkeypatch.setenv("AURIX_WEB_ALLOWED_DOMAINS", "docs.example.org")
+    agent = Orchestrator(FakeProvider("{}"), workspace=tmp_path, allow_agent_verification=True)
+    prompt = agent._system_prompt()
+    assert "read_public_url (url;" in prompt
+    assert "verify_proposal (proposal_id" in prompt
+    assert '"read_public_url"' in prompt
