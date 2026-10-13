@@ -1,6 +1,6 @@
 # AURIX
 
-**Open, local-first AI engineering agent.** AURIX is an open-source project to build an agent that can inspect software projects, plan changes, use tools safely, run tests, and learn from measured outcomes—with no paid API required by default.
+**Local-first AI engineering agent.** AURIX is a public repository for an agent that can inspect software projects, plan changes, use tools safely, run tests, and learn from measured outcomes—with no paid API required by default. The repository currently has no open-source license file. Public visibility does not grant permission to copy, modify, or redistribute the code; prior releases and commits may remain subject to previously published license terms.
 
 > Status: v0.85.0 research release; REA CLI investigation commands are allowlisted; not production-ready autonomous software engineering.
 
@@ -9,7 +9,7 @@
 - **Tool-grounded:** prefer deterministic tools over unnecessary model calls.
 - **Safe by default:** narrow workspace boundaries, command allowlists, bounded execution.
 - **Measured, not hyped:** optimize only when reproducible evaluations show improvement.
-- **Open and modular:** providers, memory backends, and tools are replaceable.
+- **Modular:** providers, memory backends, and tools are replaceable.
 
 ## Quick start
 
