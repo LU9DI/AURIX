@@ -611,6 +611,44 @@ def _assert_no_incomplete_transaction(workspace: Path, proposal_id: str) -> None
         )
 
 
+def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, str], str | None]:
+    """Verify the complete local audit chain and return each proposal's latest lifecycle event."""
+    log = root / ".aurix" / "audit.jsonl"
+    try:
+        raw = _read_regular_file(log, max_bytes=10_000_000, label="Audit log")
+    except FileNotFoundError:
+        return {}, "audit log is missing"
+    except (OSError, PermissionError, ValueError) as exc:
+        return {}, f"audit log is unreadable: {type(exc).__name__}"
+    lines = raw.splitlines()
+    if len(lines) > 100_000:
+        return {}, "audit log contains too many events"
+    previous = "0" * 64
+    latest: dict[str, str] = {}
+    try:
+        for line in lines:
+            item = _load_strict_json(line.decode("utf-8"))
+            if not isinstance(item, dict):
+                raise ValueError("event is not an object")
+            digest = item.pop("event_hash", None)
+            if not isinstance(digest, str) or item.get("previous_hash") != previous:
+                raise ValueError("invalid chain link")
+            canonical = json.dumps(
+                item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+            expected = hashlib.sha256((previous + canonical).encode("utf-8")).hexdigest()
+            if digest != expected:
+                raise ValueError("invalid event hash")
+            proposal_id = item.get("proposal_id")
+            event = item.get("event")
+            if isinstance(proposal_id, str) and event in {"proposal_applied", "proposal_reverted"}:
+                latest[proposal_id] = event
+            previous = digest
+    except (UnicodeError, ValueError, TypeError, json.JSONDecodeError):
+        return {}, "audit log hash chain is invalid"
+    return latest, None
+
+
 def inspect_transactions(workspace: Path | str) -> dict[str, object]:
     """Read-only inventory of transaction journals and current repository state.
 
@@ -640,6 +678,7 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
     tracked_dirty = status_result.returncode != 0 or bool(status_result.stdout.strip())
     rows: list[dict[str, object]] = []
     terminal = {"applied_and_audited", "rolled_back", "reverted_and_audited"}
+    lifecycle_events, audit_error = _verified_lifecycle_audit_events(root)
     for path in sorted(transactions.iterdir()):
         if path.suffix != ".json":
             continue
@@ -759,6 +798,18 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
             isinstance(item, str) for item in record["targets"]
         ):
             row.update(status="manual_intervention_required", reason="target inventory is invalid")
+        elif state in {"applied_and_audited", "reverted_and_audited"} and (
+            audit_error is not None
+            or lifecycle_events.get(path.stem)
+            != ("proposal_applied" if state == "applied_and_audited" else "proposal_reverted")
+        ):
+            row.update(
+                status="manual_intervention_required",
+                reason=(
+                    audit_error
+                    or "latest verified lifecycle audit event does not match the terminal journal state"
+                ),
+            )
         elif state == "applied_and_audited":
             diff = _git(root, ["diff", "--name-only", "--no-renames"])
             staged = _git(root, ["diff", "--cached", "--name-only", "--no-renames"])
