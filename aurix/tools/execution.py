@@ -121,8 +121,10 @@ def run_test_suite(
                 not isinstance(item, str)
                 or not item
                 or Path(item).is_absolute()
+                or item.startswith("-")
                 or ".." in Path(item).parts
                 or "\\" in item
+                or "\x00" in item
             ):
                 raise ValueError("Invalid relative test path")
     if isolation not in {"trusted", "docker"}:
