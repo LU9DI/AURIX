@@ -296,3 +296,18 @@ def test_verify_proposal_integrity_rejects_symlink_input(tmp_path):
     proposal.symlink_to(outside)
     with pytest.raises(PermissionError, match="symlink"):
         verify_proposal_integrity(proposal, "abcdef123456")
+
+def test_atomic_write_uses_unique_temp_and_preserves_stale_temp(tmp_path):
+    target = tmp_path / "manifest.json"
+    stale_temp = tmp_path / "manifest.json.tmp"
+    stale_temp.write_bytes(b"unrelated stale file")
+
+    provenance._atomic_write(target, b'{"safe":true}\\n')
+
+    assert target.read_bytes() == b'{"safe":true}\\n'
+    assert stale_temp.read_bytes() == b"unrelated stale file"
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "manifest.json",
+        "manifest.json.tmp",
+    ]
+
