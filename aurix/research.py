@@ -282,6 +282,9 @@ class SearxResearchAdapter:
             )
             payload = json.loads(search_bytes)
             results = payload.get("results", []) if isinstance(payload, dict) else []
+            if not isinstance(results, list):
+                # A malformed or unexpected search-provider response is not evidence.
+                return ""
             blocks: list[str] = []
             for item in results[: self.max_results]:
                 if not isinstance(item, dict):
