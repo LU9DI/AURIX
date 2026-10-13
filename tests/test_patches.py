@@ -1496,3 +1496,24 @@ def test_target_snapshot_detects_concurrent_file_change(tmp_path, monkeypatch):
     monkeypatch.setattr(patches.os, "read", read_then_mutate)
     with pytest.raises(PermissionError, match="changed while"):
         patches._hash_regular_file_snapshot(target, label="Patch target")
+
+
+
+def test_stale_journal_temp_does_not_block_atomic_update(tmp_path):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    journal_dir = root / ".aurix" / "transactions"
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    stale = journal_dir / f"{proposal_id}.json.123.tmp"
+    stale.write_text("left by an interrupted prior process", encoding="utf-8")
+
+    record = {"schema_version": 1, "proposal_id": proposal_id, "state": "rolled_back"}
+    patches._write_transaction_journal(root, proposal_id, record)
+
+    journal = journal_dir / f"{proposal_id}.json"
+    assert json.loads(journal.read_text(encoding="utf-8")) == record
+    assert stale.read_text(encoding="utf-8") == "left by an interrupted prior process"
+    assert not list(journal_dir.glob(f"{proposal_id}.json.*.tmp")) or list(
+        journal_dir.glob(f"{proposal_id}.json.*.tmp")
+    ) == [stale]
