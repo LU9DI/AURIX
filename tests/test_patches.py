@@ -1403,3 +1403,38 @@ def test_apply_hashes_the_exact_proposal_bytes_it_decodes(tmp_path, monkeypatch)
     assert result["status"] == "applied"
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\n"
     assert proposal.read_bytes() == original
+
+
+
+def test_recovery_history_rejects_symlink_journal(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    journal_dir = root / ".aurix" / "transactions"
+    journal_dir.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps({"proposal_id": proposal_id, "recovery_history": []}), encoding="utf-8")
+    (journal_dir / f"{proposal_id}.json").symlink_to(outside)
+    report = verify_recovery_histories(root)
+    assert report["status"] == "invalid"
+    assert report["invalid"] == 1
+    assert report["results"][0]["status"] == "invalid"
+
+
+def test_recovery_history_rejects_oversized_journal(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    journal_dir = root / ".aurix" / "transactions"
+    journal_dir.mkdir()
+    (journal_dir / f"{proposal_id}.json").write_bytes(b" " * 1_000_001)
+    report = verify_recovery_histories(root)
+    assert report["status"] == "invalid"
+    assert report["invalid"] == 1
+    assert "size limit" in report["results"][0]["reason"]
+
+
+def test_recovery_anchor_rejects_oversized_file(tmp_path):
+    root, _ = make_repo(tmp_path)
+    anchor = tmp_path / "recovery.json"
+    anchor.write_bytes(b" " * 5_000_001)
+    report = verify_recovery_histories(root, anchor)
+    assert report["status"] == "invalid"
+    assert report["anchor"]["status"] == "invalid"
+    assert "size limit" in report["anchor"]["reason"]
