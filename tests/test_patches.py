@@ -1031,6 +1031,7 @@ def test_recovery_accepts_applying_journal_when_exact_patch_is_present(tmp_path)
     from aurix.tools.patches import recover_transaction
 
     root, proposal_id = make_repo(tmp_path)
+    baseline = (root / "app.py").read_bytes()
     apply_proposal(root, proposal_id, confirm=True)
     journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
     record = json.loads(journal_path.read_text(encoding="utf-8"))
@@ -1040,7 +1041,7 @@ def test_recovery_accepts_applying_journal_when_exact_patch_is_present(tmp_path)
     recovered = recover_transaction(root, proposal_id, confirm=True)
 
     assert recovered["status"] == "recovered"
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
+    assert (root / "app.py").read_bytes() == baseline
     terminal = json.loads(journal_path.read_text(encoding="utf-8"))
     assert terminal["state"] == "rolled_back"
     assert terminal["recovery"] == "verified"
