@@ -1523,9 +1523,16 @@ def _apply_proposal_locked(
                 and verification.get("sandbox_image_id") is not None
             )
             or verification.get("regression_status") == "introduced_failure"
+            or not isinstance(verification.get("baseline_result"), dict)
+            or type(verification["baseline_result"].get("passed")) is not bool
+            or verification["baseline_result"].get("passed") is not True
+            or type(verification["baseline_result"].get("returncode")) is not int
+            or verification["baseline_result"].get("returncode") != 0
             or not isinstance(verification.get("test_result"), dict)
             or type(verification["test_result"].get("passed")) is not bool
             or verification["test_result"].get("passed") is not True
+            or type(verification["test_result"].get("returncode")) is not int
+            or verification["test_result"].get("returncode") != 0
             or review.get("risk_level") != "low"
             or security_track.get("proposal_sha256") != patch_digest
             or security_track.get("risk_level") != "low"
