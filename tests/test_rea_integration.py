@@ -497,3 +497,23 @@ def test_rea_real_silent_process_times_out_and_is_reaped(monkeypatch, tmp_path):
     assert result["timed_out"] is True
     assert result["output_limit_exceeded"] is False
     assert launched and launched[0].poll() is not None
+
+
+@pytest.mark.parametrize("relative_path", [".env", ".git/config", ".ssh/id_rsa", ".aurix/transaction.json"])
+def test_rea_static_analysis_rejects_ignored_or_sensitive_targets(tmp_path, relative_path):
+    target = tmp_path / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("sensitive fixture", encoding="utf-8")
+
+    with pytest.raises(PermissionError, match="ignored or sensitive"):
+        rea.analyze_javascript_application(tmp_path, relative_path)
+
+
+@pytest.mark.parametrize("relative_path", [".env", ".git/config", ".ssh/id_rsa", ".aurix/transaction.json"])
+def test_rea_investigation_rejects_ignored_or_sensitive_targets(tmp_path, relative_path):
+    target = tmp_path / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("sensitive fixture", encoding="utf-8")
+
+    with pytest.raises(PermissionError, match="ignored or sensitive"):
+        rea.investigate_with_rea(tmp_path, "analyze", path=relative_path)
