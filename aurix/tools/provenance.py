@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -59,20 +60,32 @@ def verify_proposal_integrity(
     """
     path = _metadata_path(proposal_path)
     snapshot = proposal_path.read_bytes() if proposal_bytes is None else proposal_bytes
-    # A dangling symlink also counts as an unsafe manifest, not as absence.
-    if path.is_symlink():
-        raise PermissionError("Unsafe proposal manifest")
-    if not path.exists():
+    # lstat distinguishes a genuinely absent manifest from a dangling symlink.
+    try:
+        path.lstat()
+    except FileNotFoundError:
         return {
             "integrity": "legacy_unsealed",
             "sha256": hashlib.sha256(snapshot).hexdigest(),
         }
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 16_384:
-        raise PermissionError("Unsafe proposal manifest")
+    except OSError as exc:
+        raise ValueError("Proposal manifest is unreadable") from exc
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb") as stream:
+            manifest_stat = os.fstat(stream.fileno())
+            if not stat.S_ISREG(manifest_stat.st_mode) or manifest_stat.st_size > 16_384:
+                raise PermissionError("Unsafe proposal manifest")
+            manifest_bytes = stream.read(16_385)
+            if len(manifest_bytes) > 16_384:
+                raise PermissionError("Unsafe proposal manifest")
         manifest = json.loads(
-            path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_keys
+            manifest_bytes.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys
         )
+    except PermissionError:
+        raise
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("Proposal manifest is unreadable") from exc
     actual = hashlib.sha256(snapshot).hexdigest()
