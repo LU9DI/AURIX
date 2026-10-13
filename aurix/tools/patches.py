@@ -588,7 +588,9 @@ def _assert_no_incomplete_transaction(workspace: Path, proposal_id: str) -> None
     if not path.exists():
         return
     try:
-        record = _load_strict_json(\n                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")\n                )
+        record = _load_strict_json(
+                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")
+                )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise PermissionError(
             "Transaction journal is unreadable; manual recovery is required"
@@ -647,7 +649,9 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
             rows.append(row)
             continue
         try:
-            record = _load_strict_json(\n                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")\n                )
+            record = _load_strict_json(
+                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")
+                )
         except (OSError, UnicodeError, json.JSONDecodeError):
             row.update(status="manual_intervention_required", reason="journal is unreadable")
             rows.append(row)
