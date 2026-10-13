@@ -842,6 +842,7 @@ def plan_transaction_recovery(workspace: Path | str) -> dict[str, object]:
             )
             if not isinstance(record, dict):
                 raise ValueError("journal is not an object")
+            _validate_recovery_history(record.get("recovery_history", []))
             state = record.get("state")
             plan["state"] = state
             proposal = _proposal_path(root, str(proposal_id))
