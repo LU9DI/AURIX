@@ -215,7 +215,7 @@ def test_direct_url_fetch_rejects_redirects_and_non_success_statuses(monkeypatch
     assert page_requests[0][1]["raise_for_status"] is False
 
 
-@pytest.mark.parametrize("content_type", ["application/pdf", "image/svg+xml", "application/octet-stream"])
+@pytest.mark.parametrize("content_type", ["application/pdf", "image/svg+xml", "application/octet-stream", "text/htmlx", "text/plainfoo", "application/xhtml+xml-malicious", "text/markdownx"])
 def test_direct_url_fetch_rejects_unsupported_content_types(monkeypatch, content_type):
     from aurix import research
 
