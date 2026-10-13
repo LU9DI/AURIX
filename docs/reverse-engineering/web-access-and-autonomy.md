@@ -32,7 +32,7 @@ This is a targeted design adaptation, not a claim that the upstream projects wer
 1. The operator configures `AURIX_WEB_ALLOWED_DOMAINS` as a comma-separated allowlist of exact hostnames and optional `*.example.org` subdomain patterns.
 2. The model may request `read_public_url({"url":"https://approved.example.org/path"})`; the implementation independently checks the hostname against the allowlist.
 3. Only absolute HTTP(S) URLs without embedded credentials are accepted.
-4. DNS results must be public; the actual connection pins to a validated address.
+4. DNS results must be public; the actual connection pins to a validated address. Only the scheme's default port (HTTP 80 / HTTPS 443) is accepted, preventing an approved hostname from becoming a tunnel to unrelated public services on arbitrary ports.
 5. `robots.txt` is checked; transport/policy uncertainty fails closed.
 6. Redirects are not followed. A redirected target must be explicitly requested and independently pass the allowlist and network checks.
 7. Responses are bounded to 2 MB and output is capped at 16,000 characters. Only HTML, plain text, and Markdown are accepted.
