@@ -412,3 +412,36 @@ def test_research_adapter_does_not_extract_spoofed_content_types(
     assert "search snippet" in result
     assert "must not be extracted" not in result
     assert "PAGE EXTRACT:" not in result
+
+
+
+@pytest.mark.parametrize("malformed_results", [{"url": "https://example.org/"}, 7, "not-a-list", None])
+def test_research_adapter_fails_closed_on_malformed_result_lists(
+    monkeypatch, malformed_results
+):
+    import json
+
+    from aurix import research
+
+    class DummyClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(research.httpx, "Client", lambda **kwargs: DummyClient())
+    monkeypatch.setattr(
+        research,
+        "_get_limited",
+        lambda *args, **kwargs: (
+            200,
+            {"content-type": "application/json"},
+            json.dumps({"results": malformed_results}).encode(),
+        ),
+    )
+
+    result = research.SearxResearchAdapter(
+        "https://search.example", fetch_pages=False
+    )("test query")
+    assert result == ""
