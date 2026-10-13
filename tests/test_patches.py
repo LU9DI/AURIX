@@ -2008,4 +2008,4 @@ def test_inspection_flags_finalization_without_finalization_audit_event(tmp_path
     row = report["transactions"][0]
     assert row["status"] == "manual_intervention_required"
     assert "recovery audit event does not match" in row["reason"]
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
