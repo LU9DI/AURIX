@@ -18,6 +18,24 @@ def test_manifest_detects_proposal_tampering(tmp_path):
         review_proposal(tmp_path, "abcdef123456")
 
 
+def test_audit_log_rejects_non_object_event(tmp_path):
+    log_dir = tmp_path / ".aurix"
+    log_dir.mkdir()
+    (log_dir / "audit.jsonl").write_text('[]\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="integrity check"):
+        append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+
+
+def test_audit_log_rejects_duplicate_json_keys(tmp_path):
+    log_dir = tmp_path / ".aurix"
+    log_dir.mkdir()
+    (log_dir / "audit.jsonl").write_text(
+        '{"event":"one","event":"two","event_hash":"0"}\n', encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="integrity check"):
+        append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+
+
 def test_manifest_rejects_boolean_schema_version(tmp_path):
     import hashlib
 
