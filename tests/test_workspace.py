@@ -207,3 +207,38 @@ def test_guarded_reader_rejects_invalid_byte_limits(tmp_path):
     for value in (0, -1, True, 1.5):
         with pytest.raises(ValueError, match="max_bytes must be a positive integer"):
             _read_regular_file_no_follow(target, max_bytes=value)
+
+
+
+def test_workspace_walk_prunes_ignored_and_symlink_directories(tmp_path, monkeypatch):
+    import os
+    from pathlib import Path
+
+    from aurix.tools import workspace as workspace_tools
+
+    (tmp_path / ".git" / "objects").mkdir(parents=True)
+    (tmp_path / ".git" / "objects" / "hidden.py").write_text("SECRET", encoding="utf-8")
+    (tmp_path / "node_modules" / "package").mkdir(parents=True)
+    (tmp_path / "node_modules" / "package" / "hidden.js").write_text("SECRET", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "safe.py").write_text("safe", encoding="utf-8")
+    try:
+        (tmp_path / "linked").symlink_to(tmp_path / "src", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pass
+
+    original_walk = os.walk
+    visited = []
+
+    def tracked_walk(*args, **kwargs):
+        for current, directories, files in original_walk(*args, **kwargs):
+            visited.append(Path(current).relative_to(tmp_path).as_posix())
+            yield current, directories, files
+
+    monkeypatch.setattr(workspace_tools.os, "walk", tracked_walk)
+    listed = workspace_tools.list_files(tmp_path)
+
+    assert "src/safe.py" in listed
+    assert not any(path.startswith((".git", "node_modules")) for path in visited)
+    assert "linked" not in visited
+    assert not any("hidden" in path for path in listed)
