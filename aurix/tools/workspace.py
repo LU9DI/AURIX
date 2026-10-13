@@ -304,6 +304,12 @@ def search_text(
 
 def build_workspace_context(workspace: Path, *, max_chars: int = 24000, max_files: int = 24) -> str:
     """Build bounded context; repository content is untrusted data, never instructions."""
+    if isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars < 1:
+        raise ValueError("max_chars must be a positive integer")
+    if isinstance(max_files, bool) or not isinstance(max_files, int) or max_files < 1:
+        raise ValueError("max_files must be a positive integer")
+    max_chars = min(max_chars, 100_000)
+    max_files = min(max_files, 100)
     root = workspace.resolve()
     candidates: list[Path] = []
     for path in _iter_workspace_paths(root):
@@ -324,7 +330,7 @@ def build_workspace_context(workspace: Path, *, max_chars: int = 24000, max_file
     )
     sections: list[str] = []
     used = 0
-    for path in candidates[: max(1, min(max_files, 100))]:
+    for path in candidates[:max_files]:
         remaining = max_chars - used
         if remaining <= 0:
             break
