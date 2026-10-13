@@ -1205,8 +1205,45 @@ def _rollback_exact_patch(
         )
 
 
+def _hash_regular_file_snapshot(path: Path, *, label: str) -> str:
+    """Hash one regular file through a no-follow descriptor and detect concurrent writes."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno in {40, 62}:  # ELOOP on common POSIX platforms
+            raise PermissionError(f"{label} must not be a symlink") from exc
+        raise
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise PermissionError(f"{label} is not a regular file")
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            digest.update(chunk)
+            total += len(chunk)
+        after = os.fstat(fd)
+        stable_before = (
+            before.st_dev, before.st_ino, before.st_size,
+            before.st_mtime_ns, before.st_ctime_ns,
+        )
+        stable_after = (
+            after.st_dev, after.st_ino, after.st_size,
+            after.st_mtime_ns, after.st_ctime_ns,
+        )
+        if stable_before != stable_after or total != after.st_size:
+            raise PermissionError(f"{label} changed while its snapshot was being read")
+        return digest.hexdigest()
+    finally:
+        os.close(fd)
+
+
 def _target_state_snapshot(workspace: Path, targets: Sequence[str]) -> list[dict[str, str]]:
-    """Capture exact bytes of every approved target before audit/application."""
+    """Capture stable hashes of approved regular-file targets before audit/application."""
     root = workspace.expanduser().resolve()
     snapshot: list[dict[str, str]] = []
     for relative in sorted(set(targets)):
@@ -1214,7 +1251,7 @@ def _target_state_snapshot(workspace: Path, targets: Sequence[str]) -> list[dict
         if target.is_symlink() or not target.is_file() or root not in target.resolve().parents:
             raise PermissionError(f"Patch target changed or became unsafe: {relative}")
         snapshot.append(
-            {"path": relative, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
+            {"path": relative, "sha256": _hash_regular_file_snapshot(target, label="Patch target")}
         )
     return snapshot
 
