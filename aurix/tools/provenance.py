@@ -171,28 +171,42 @@ def _append_audit_event_locked(
         raise PermissionError("AURIX metadata directory must not be a symlink")
     metadata.mkdir(parents=True, exist_ok=True)
     log = metadata / "audit.jsonl"
-    if log.is_symlink():
-        raise PermissionError("Audit log must not be a symlink")
     previous = "0" * 64
-    if log.exists():
-        if not log.is_file() or log.stat().st_size > 10_000_000:
-            raise ValueError("Audit log is not a bounded regular file")
-        raw_lines = log.read_bytes().splitlines()
-        if raw_lines and len(raw_lines) > 100_000:
-            raise ValueError("Audit log contains too many events")
-        for raw in raw_lines:
-            try:
-                item = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
-                if not isinstance(item, dict):
-                    raise TypeError("audit event must be a JSON object")
-                digest = item.pop("event_hash")
-            except (json.JSONDecodeError, KeyError, TypeError) as exc:
-                raise ValueError("Audit log integrity check failed") from exc
-            canonical = json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-            expected = hashlib.sha256((previous + canonical).encode("utf-8")).hexdigest()
-            if digest != expected or item.get("previous_hash") != previous:
-                raise ValueError("Audit log hash chain is invalid")
-            previous = digest
+    log_identity: tuple[int, int] | None = None
+    read_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        read_fd = os.open(log, read_flags)
+    except FileNotFoundError:
+        raw_lines: list[bytes] = []
+    except OSError as exc:
+        if getattr(exc, "errno", None) in {40, 62}:
+            raise PermissionError("Audit log must not be a symlink") from exc
+        raise ValueError("Audit log is unreadable") from exc
+    else:
+        with os.fdopen(read_fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 10_000_000:
+                raise ValueError("Audit log is not a bounded regular file")
+            log_identity = (info.st_dev, info.st_ino)
+            raw_data = stream.read(10_000_001)
+            if len(raw_data) > 10_000_000:
+                raise ValueError("Audit log is not a bounded regular file")
+        raw_lines = raw_data.splitlines()
+    if raw_lines and len(raw_lines) > 100_000:
+        raise ValueError("Audit log contains too many events")
+    for raw in raw_lines:
+        try:
+            item = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+            if not isinstance(item, dict):
+                raise TypeError("audit event must be a JSON object")
+            digest = item.pop("event_hash")
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise ValueError("Audit log integrity check failed") from exc
+        canonical = json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        expected = hashlib.sha256((previous + canonical).encode("utf-8")).hexdigest()
+        if digest != expected or item.get("previous_hash") != previous:
+            raise ValueError("Audit log hash chain is invalid")
+        previous = digest
     event_data: dict[str, Any] = {
         "timestamp": datetime.now(UTC).isoformat(),
         "event": event,
@@ -203,13 +217,27 @@ def _append_audit_event_locked(
     canonical = json.dumps(event_data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     event_hash = hashlib.sha256((previous + canonical).encode("utf-8")).hexdigest()
     stored = {**event_data, "event_hash": event_hash}
-    fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    append_flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
     try:
+        fd = os.open(log, append_flags, 0o600)
+    except OSError as exc:
+        if getattr(exc, "errno", None) in {40, 62}:
+            raise PermissionError("Audit log must not be a symlink") from exc
+        raise
+    try:
+        append_stat = os.fstat(fd)
+        if not stat.S_ISREG(append_stat.st_mode):
+            raise PermissionError("Audit log must be a regular file")
+        if log_identity is not None and (append_stat.st_dev, append_stat.st_ino) != log_identity:
+            raise PermissionError("Audit log changed during append; refusing operation")
+        if log_identity is None and append_stat.st_size != 0:
+            raise PermissionError("Audit log appeared during append; refusing operation")
         with os.fdopen(fd, "ab") as stream:
             stream.write(
                 (json.dumps(stored, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
             )
             stream.flush()
+            os.fsync(stream.fileno())
         fd = -1
     finally:
         if fd >= 0:
