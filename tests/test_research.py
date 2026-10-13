@@ -27,6 +27,8 @@ def test_research_adapter_requires_absolute_http_endpoint():
         "http://192.168.1.2/",
         "http://user:pass@example.com/",
         "http://service.internal/",
+        "https://example.org:8443/",
+        "http://example.org:8080/",
     ],
 )
 def test_rejects_non_public_research_targets(url):
@@ -177,3 +179,10 @@ def test_direct_url_fetch_returns_bounded_untrusted_text(monkeypatch):
     assert "Useful text." in result["content"]
     assert "ignore me" not in result["content"]
     assert result["untrusted_content"] is True
+
+ 
+def test_direct_url_tool_is_listed_in_agent_protocol():
+    from aurix.orchestrator import SYSTEM_PROMPT
+
+    protocol = SYSTEM_PROMPT.split("- tool request:", 1)[1]
+    assert "read_public_url" in protocol
