@@ -1890,3 +1890,54 @@ def test_inspection_rejects_valid_chain_with_wrong_patch_digest(tmp_path):
     row = report["transactions"][0]
     assert row["status"] == "manual_intervention_required"
     assert "lifecycle audit event does not match" in row["reason"]
+
+
+def test_inspection_flags_audit_written_before_apply_journal_finalization_failure(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    original_write = patches._write_transaction_journal
+
+    def fail_terminal_write(workspace, transaction_id, record):
+        if record.get("state") == "applied_and_audited":
+            raise OSError("simulated terminal journal write failure")
+        return original_write(workspace, transaction_id, record)
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", fail_terminal_write)
+    with pytest.raises(OSError, match="terminal journal write failure"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    events = [json.loads(line) for line in (root / ".aurix" / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert journal["state"] == "patch_applied"
+    assert events[-1]["event"] == "proposal_applied"
+    report = inspect_transactions(root)
+    assert report["status"] == "manual_intervention_required"
+    assert report["transactions"][0]["status"] == "manual_intervention_required"
+
+
+def test_inspection_flags_audit_written_before_revert_journal_finalization_failure(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_write = patches._write_transaction_journal
+
+    def fail_terminal_write(workspace, transaction_id, record):
+        if record.get("state") == "reverted_and_audited":
+            raise OSError("simulated terminal journal write failure")
+        return original_write(workspace, transaction_id, record)
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", fail_terminal_write)
+    with pytest.raises(OSError, match="terminal journal write failure"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    events = [json.loads(line) for line in (root / ".aurix" / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert journal["state"] == "reverting"
+    assert events[-1]["event"] == "proposal_reverted"
+    report = inspect_transactions(root)
+    assert report["status"] == "manual_intervention_required"
+    assert report["transactions"][0]["status"] == "manual_intervention_required"
