@@ -140,7 +140,7 @@ def test_direct_url_fetch_requires_explicit_host_allowlist():
 def test_domain_allowlist_matches_exact_hosts_and_subdomain_wildcards():
     from aurix.research import _domain_is_allowed
 
-    assert _domain_is_allowed("docs.example.org", ["example.org"])
+    assert _domain_is_allowed("docs.example.org", ["docs.example.org"])
     assert not _domain_is_allowed("sub.example.org", ["example.org"])
     assert _domain_is_allowed("sub.example.org", ["*.example.org"])
     assert not _domain_is_allowed("example.org.attacker.test", ["*.example.org"])
@@ -170,7 +170,7 @@ def test_direct_url_fetch_returns_bounded_untrusted_text(monkeypatch):
     )
     result = research.fetch_authorized_public_url(
         "https://docs.example.org/guide",
-        allowed_domains=["example.org"],
+        allowed_domains=["docs.example.org"],
     )
     assert result["status"] == 200
     assert "Public docs" in result["content"]
