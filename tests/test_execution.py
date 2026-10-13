@@ -94,7 +94,7 @@ def test_docker_mode_is_network_disabled_and_never_pulls(monkeypatch, tmp_path):
     assert "--pull=never" in calls[1][0]
     assert "--name" in calls[1][0]
     assert calls[0][0][:4] == ["docker", "image", "inspect", "--format={{.Id}}"]
-    assert calls[1][0][-5] == "sha256:" + "a" * 64
+    assert calls[1][0][-6] == "sha256:" + "a" * 64
     assert result["sandbox_image_id"] == "sha256:" + "a" * 64
     assert calls[1][1]["shell"] is False
 
