@@ -7,6 +7,7 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,48 @@ from aurix.tools.workspace import _is_ignored_target, _is_sensitive, safe_path
 MAX_STDOUT_CHARS = 32_000
 MAX_STDERR_CHARS = 4_000
 MAX_TIMEOUT_SECONDS = 120
+MAX_STAGED_FILES = 10_000
+MAX_STAGED_BYTES = 100 * 1024 * 1024
+
+
+def _stage_safe_directory(source: Path) -> tuple[tempfile.TemporaryDirectory, Path]:
+    """Stage only bounded regular files, excluding secrets and ignored paths."""
+    temporary = tempfile.TemporaryDirectory(prefix="aurix-rea-")
+    destination = Path(temporary.name) / "target"
+    destination.mkdir()
+    count = 0
+    total_bytes = 0
+    try:
+        for current, dirs, files in os.walk(source, topdown=True, followlinks=False):
+            current_path = Path(current)
+            relative_dir = current_path.relative_to(source)
+            dirs[:] = sorted(
+                name for name in dirs
+                if not (current_path / name).is_symlink()
+                and not _is_ignored_target(source, current_path / name)
+                and not _is_sensitive(current_path / name)
+            )
+            for name in sorted(files):
+                original = current_path / name
+                if original.is_symlink() or _is_ignored_target(source, original) or _is_sensitive(original):
+                    continue
+                try:
+                    metadata = original.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if not original.is_file():
+                    continue
+                if count >= MAX_STAGED_FILES or total_bytes + metadata.st_size > MAX_STAGED_BYTES:
+                    raise ValueError("REA directory staging exceeded its file or size budget")
+                staged_file = destination / relative_dir / name
+                staged_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(original, staged_file, follow_symlinks=False)
+                count += 1
+                total_bytes += metadata.st_size
+        return temporary, destination
+    except BaseException:
+        temporary.cleanup()
+        raise
 
 
 def _signal_process_group(process: subprocess.Popen[bytes], *, force: bool = False) -> None:
@@ -179,8 +222,16 @@ def analyze_javascript_application(
 
     timeout = max(1, min(int(timeout_seconds), MAX_TIMEOUT_SECONDS))
     executable = _rea_executable()
-    argv = [executable, "analyze-javascript-application", str(target), "--json"]
-    completed = _run_bounded(argv, cwd=root, env=_child_environment(), timeout=timeout)
+    temporary = None
+    execution_target = target
+    if target.is_dir():
+        temporary, execution_target = _stage_safe_directory(target)
+    argv = [executable, "analyze-javascript-application", str(execution_target), "--json"]
+    try:
+        completed = _run_bounded(argv, cwd=root, env=_child_environment(), timeout=timeout)
+    finally:
+        if temporary is not None:
+            temporary.cleanup()
     if completed["timed_out"] or completed["output_limit_exceeded"]:
         return {
             "status": "timeout" if completed["timed_out"] else "output_limit_exceeded",
@@ -285,8 +336,16 @@ def investigate_with_rea(
         argv_tail.append("--json")
         target_label = target.relative_to(root).as_posix()
     executable = _rea_executable()
+    temporary = None
+    if command not in {"providers", "capabilities"} and target.is_dir():
+        temporary, staged_target = _stage_safe_directory(target)
+        argv_tail[1] = str(staged_target)
     argv = [executable, *argv_tail]
-    completed = _run_bounded(argv, cwd=root, env=_child_environment(), timeout=timeout)
+    try:
+        completed = _run_bounded(argv, cwd=root, env=_child_environment(), timeout=timeout)
+    finally:
+        if temporary is not None:
+            temporary.cleanup()
     if completed["timed_out"] or completed["output_limit_exceeded"]:
         return {
             "status": "timeout" if completed["timed_out"] else "output_limit_exceeded",
