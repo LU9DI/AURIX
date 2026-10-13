@@ -331,6 +331,35 @@ def test_mcp_request_fails_fast_on_malformed_jsonrpc_stdout():
         client.request("initialize")
 
 
+
+def test_mcp_request_does_not_accept_boolean_as_numeric_response_id():
+    class Stdin:
+        def write(self, wire):
+            pass
+
+        def flush(self):
+            pass
+
+    class Process:
+        stdin = Stdin()
+
+        def poll(self):
+            return None
+
+    client = object.__new__(rea_mcp._StdioMCP)
+    client.process = Process()
+    client.timeout = 1
+    import time
+
+    client.deadline = time.monotonic() + 1
+    client._next_id = 1
+    client._messages = queue.Queue(maxsize=2)
+    client._messages.put_nowait(json.dumps({"jsonrpc": "2.0", "id": True, "result": {"wrong": True}}))
+    client._messages.put_nowait(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"accepted": True}}))
+
+    assert client.request("initialize") == {"accepted": True}
+
+
 def test_mcp_process_tree_uses_dedicated_posix_process_group(monkeypatch):
     import os
     import signal
