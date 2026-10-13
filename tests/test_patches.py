@@ -1585,10 +1585,12 @@ def test_apply_detects_same_target_edit_racing_git_apply(tmp_path, monkeypatch):
 
     def race_target_then_apply(workspace, args, **kwargs):
         nonlocal injected
+        result = original_git(workspace, args, **kwargs)
         if (
             not injected
             and args == ["apply", "--whitespace=error", "-"]
             and kwargs.get("patch")
+            and result.returncode == 0
         ):
             injected = True
             target = root / "app.py"
@@ -1596,7 +1598,7 @@ def test_apply_detects_same_target_edit_racing_git_apply(tmp_path, monkeypatch):
                 target.read_text(encoding="utf-8") + "# concurrent edit\n",
                 encoding="utf-8",
             )
-        return original_git(workspace, args, **kwargs)
+        return result
 
     monkeypatch.setattr(patches, "_git", race_target_then_apply)
     with pytest.raises(RuntimeError, match="final tracked status differs from expectation"):
