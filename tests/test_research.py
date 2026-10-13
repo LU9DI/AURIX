@@ -181,6 +181,39 @@ def test_direct_url_fetch_returns_bounded_untrusted_text(monkeypatch):
     assert result["untrusted_content"] is True
 
  
+
+@pytest.mark.parametrize("status", [301, 302, 307, 308, 404, 500])
+def test_direct_url_fetch_rejects_redirects_and_non_success_statuses(monkeypatch, status):
+    from aurix import research
+
+    class DummyClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+    monkeypatch.setattr(research, "_robots_allows", lambda *args: True)
+    monkeypatch.setattr(research.httpx, "Client", lambda **kwargs: DummyClient())
+    calls = []
+
+    def fake_get_limited(client, url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/robots.txt"):
+            return 404, {}, b""
+        return status, {"location": "https://attacker.example/steal", "content-type": "text/html"}, b""
+
+    monkeypatch.setattr(research, "_get_limited", fake_get_limited)
+    with pytest.raises(ValueError, match=f"HTTP status {status}"):
+        research.fetch_authorized_public_url(
+            "https://docs.example.org/guide",
+            allowed_domains=["docs.example.org"],
+        )
+    page_requests = [call for call in calls if not call[0].endswith("/robots.txt")]
+    assert len(page_requests) == 1
+    assert page_requests[0][1]["raise_for_status"] is False
+
 def test_direct_url_tool_is_listed_in_agent_protocol():
     from aurix.orchestrator import SYSTEM_PROMPT
 
