@@ -311,7 +311,7 @@ def test_robots_policy_rejects_invalid_utf8(monkeypatch):
         lambda request: httpx.Response(
             200,
             headers={"content-type": "text/plain; charset=utf-8"},
-            content=b"User-agent: *\\nDisallow: /private\\n\\xff",
+            content=b"User-agent: *\nDisallow: /private\n\xff",
         )
     )
     with httpx.Client(transport=transport) as client:
