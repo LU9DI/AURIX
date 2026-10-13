@@ -287,7 +287,8 @@ class SearxResearchAdapter:
                 if not isinstance(item, dict):
                     continue
                 url = item.get("url")
-                if not isinstance(url, str):
+                # Search-provider output is untrusted; cap URL parsing and DNS work.
+                if not isinstance(url, str) or not url or len(url) > 2048:
                     continue
                 title = str(item.get("title", "Untitled"))[:300]
                 snippet = str(item.get("content", ""))[:1200]
