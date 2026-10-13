@@ -641,7 +641,12 @@ def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, tuple[str, s
                 raise ValueError("invalid event hash")
             proposal_id = item.get("proposal_id")
             event = item.get("event")
-            if isinstance(proposal_id, str) and event in {"proposal_applied", "proposal_reverted"}:
+            if isinstance(proposal_id, str) and event in {
+                "proposal_applied",
+                "proposal_reverted",
+                "transaction_recovered",
+                "transaction_recovery_finalized",
+            }:
                 details = item.get("details")
                 patch_digest = details.get("patch_sha256") if isinstance(details, dict) else None
                 latest[proposal_id] = (event, patch_digest if isinstance(patch_digest, str) else None)
@@ -847,11 +852,47 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
                     status="consistent_terminal_record",
                     reason="applied patch and target set match the journal; no mutation performed",
                 )
-        elif state == "rolled_back" and (tracked_dirty or head != record.get("base_commit")):
+        elif state == "rolled_back" and (
+            tracked_dirty or head != record.get("base_commit")
+        ):
             row.update(
                 status="manual_intervention_required",
                 reason="repository state differs from the recorded rollback state",
             )
+        elif state == "rolled_back" and any(
+            isinstance(entry, dict)
+            and entry.get("action") in {"exact_patch_rollback", "finalize_verified_rollback"}
+            for entry in record.get("recovery_history", [])
+        ):
+            recovery_action = next(
+                entry.get("action")
+                for entry in reversed(record["recovery_history"])
+                if isinstance(entry, dict)
+                and entry.get("action") in {"exact_patch_rollback", "finalize_verified_rollback"}
+            )
+            expected_event = (
+                "transaction_recovered"
+                if recovery_action == "exact_patch_rollback"
+                else "transaction_recovery_finalized"
+            )
+            latest_event = lifecycle_events.get(path.stem, (None, None))
+            if (
+                audit_error is not None
+                or latest_event[0] != expected_event
+                or latest_event[1] != record.get("patch_sha256")
+            ):
+                row.update(
+                    status="manual_intervention_required",
+                    reason=(
+                        audit_error
+                        or "latest verified recovery audit event does not match the recovery history"
+                    ),
+                )
+            else:
+                row.update(
+                    status="consistent_terminal_record",
+                    reason="rollback baseline and recovery audit evidence match; no mutation performed",
+                )
         else:
             row.update(
                 status="consistent_terminal_record",
