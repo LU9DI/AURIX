@@ -30,9 +30,11 @@ class SequenceProvider:
     def __init__(self, *responses):
         self.responses = list(responses)
         self.prompts = []
+        self.systems = []
 
     def generate(self, prompt, *, system=""):
         self.prompts.append(prompt)
+        self.systems.append(system)
         return self.responses.pop(0)
 
 
@@ -589,8 +591,8 @@ def test_orchestrator_can_read_an_explicitly_allowlisted_public_url(monkeypatch,
     result = Orchestrator(provider, workspace=tmp_path).run("Read the approved documentation URL")
     assert result.status == "completed"
     assert "bounded retries" in provider.prompts[1]
-    assert "read_public_url" in provider.prompts[0]
-    assert "AURIX_WEB_ALLOWED_DOMAINS" in provider.prompts[0]
+    assert "read_public_url" in provider.systems[0]
+    assert "AURIX_WEB_ALLOWED_DOMAINS" in provider.systems[0]
 
 
 def test_direct_url_tool_is_disabled_without_allowlist(monkeypatch, tmp_path):
