@@ -883,8 +883,11 @@ def recover_transaction(
             )
         _validate_recovery_history(journal.get("recovery_history", []))
         proposal = _proposal_path(root, proposal_id)
-        patch = proposal.read_text(encoding="utf-8")
-        digest = hashlib.sha256(proposal.read_bytes()).hexdigest()
+        # Recovery must validate and reverse the same proposal bytes; separate
+        # text/byte reads could otherwise bind a different patch to the digest.
+        proposal_bytes = proposal.read_bytes()
+        patch = proposal_bytes.decode("utf-8")
+        digest = hashlib.sha256(proposal_bytes).hexdigest()
         if digest != journal.get("patch_sha256"):
             raise PermissionError("Proposal digest changed; automatic recovery refused")
         targets = journal.get("targets")
