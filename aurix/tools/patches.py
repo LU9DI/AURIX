@@ -1145,16 +1145,24 @@ def finalize_interrupted_recovery(
         )
         journal.pop("recovery_attempt", None)
         _write_transaction_journal(root, proposal_id, journal)
-        append_audit_event(
-            root,
-            "transaction_recovery_finalized",
-            proposal_id,
-            {
-                "action": "finalize_verified_rollback",
-                "patch_sha256": digest,
-                "result": "baseline_verified",
-            },
-        )
+        try:
+            append_audit_event(
+                root,
+                "transaction_recovery_finalized",
+                proposal_id,
+                {
+                    "action": "finalize_verified_rollback",
+                    "patch_sha256": digest,
+                    "result": "baseline_verified",
+                },
+            )
+        except Exception as exc:
+            # The source baseline and terminal journal are already verified. Do not
+            # imply that finalization was fully audited when the secondary event failed.
+            raise RuntimeError(
+                "Rollback baseline finalized, but recovery-finalization audit event "
+                "could not be persisted; inspect the audit chain"
+            ) from exc
         return {
             "proposal_id": proposal_id,
             "status": "finalized",
