@@ -19,6 +19,16 @@ def _metadata_path(proposal_path: Path) -> Path:
     return proposal_path.with_suffix(".json")
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject ambiguous metadata rather than silently accepting the last key."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise json.JSONDecodeError(f"duplicate JSON key: {key}", "", 0)
+        result[key] = value
+    return result
+
+
 def register_proposal(workspace: Path, proposal_path: Path, proposal_id: str) -> dict[str, Any]:
     patch_bytes = proposal_path.read_bytes()
     manifest = {
@@ -47,11 +57,18 @@ def verify_proposal_integrity(proposal_path: Path, proposal_id: str) -> dict[str
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 16_384:
         raise PermissionError("Unsafe proposal manifest")
     try:
-        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_keys
+        )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("Proposal manifest is unreadable") from exc
     actual = hashlib.sha256(proposal_path.read_bytes()).hexdigest()
-    if manifest.get("schema_version") != 1 or manifest.get("proposal_id") != proposal_id:
+    if (
+        not isinstance(manifest, dict)
+        or type(manifest.get("schema_version")) is not int
+        or manifest.get("schema_version") != 1
+        or manifest.get("proposal_id") != proposal_id
+    ):
         raise ValueError("Proposal manifest identity mismatch")
     if (
         manifest.get("sha256") != actual
