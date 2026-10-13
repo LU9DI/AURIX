@@ -1524,7 +1524,8 @@ def _apply_proposal_locked(
             )
             or verification.get("regression_status") == "introduced_failure"
             or not isinstance(verification.get("test_result"), dict)
-            or not verification["test_result"].get("passed", False)
+            or type(verification["test_result"].get("passed")) is not bool
+            or verification["test_result"].get("passed") is not True
             or review.get("risk_level") != "low"
             or security_track.get("proposal_sha256") != patch_digest
             or security_track.get("risk_level") != "low"
