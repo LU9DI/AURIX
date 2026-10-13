@@ -821,7 +821,11 @@ def plan_transaction_recovery(workspace: Path | str) -> dict[str, object]:
             "reason": row.get("reason", "transaction requires review"),
         }
         try:
-            record = _load_strict_json(_read_regular_file(journal_path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8"))
+            record = _load_strict_json(
+                _read_regular_file(
+                    journal_path, max_bytes=1_000_000, label="Transaction journal"
+                ).decode("utf-8")
+            )
             if not isinstance(record, dict):
                 raise ValueError("journal is not an object")
             state = record.get("state")
@@ -908,7 +912,11 @@ def recover_transaction(
     with _workspace_operation_lock(root):
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
-            journal = _load_strict_json(_read_regular_file(journal_path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8"))
+            journal = _load_strict_json(
+                _read_regular_file(
+                    journal_path, max_bytes=1_000_000, label="Transaction journal"
+                ).decode("utf-8")
+            )
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError(
                 "Transaction journal is unreadable; manual recovery is required"
@@ -1076,7 +1084,11 @@ def finalize_interrupted_recovery(
     with _workspace_operation_lock(root):
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
-            journal = _load_strict_json(_read_regular_file(journal_path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8"))
+            journal = _load_strict_json(
+                _read_regular_file(
+                    journal_path, max_bytes=1_000_000, label="Transaction journal"
+                ).decode("utf-8")
+            )
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError(
                 "Transaction journal is unreadable; manual recovery is required"
