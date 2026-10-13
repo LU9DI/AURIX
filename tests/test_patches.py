@@ -1517,3 +1517,55 @@ def test_stale_journal_temp_does_not_block_atomic_update(tmp_path):
     assert not list(journal_dir.glob(f"{proposal_id}.json.*.tmp")) or list(
         journal_dir.glob(f"{proposal_id}.json.*.tmp")
     ) == [stale]
+
+
+
+def test_apply_audit_failure_rolls_back_and_records_terminal_journal(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+
+    def fail_audit(*args, **kwargs):
+        raise OSError("simulated audit storage failure")
+
+    monkeypatch.setattr(patches, "append_audit_event", fail_audit)
+    with pytest.raises(RuntimeError, match="Audit logging failed"):
+        patches.apply_proposal(root, proposal_id, confirm=True)
+
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "rolled_back"
+    assert journal["recovery"] == "verified"
+
+
+def test_apply_terminal_journal_failure_is_reported_as_interrupted(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    original_write = patches._write_transaction_journal
+
+    def fail_terminal_write(workspace, current_id, record):
+        if record.get("state") == "applied_and_audited":
+            raise OSError("simulated terminal journal write failure")
+        return original_write(workspace, current_id, record)
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", fail_terminal_write)
+    with pytest.raises(OSError, match="terminal journal write failure"):
+        patches.apply_proposal(root, proposal_id, confirm=True)
+
+    # The audit event and applied patch may already exist, but the journal remains
+    # non-terminal. It must not be represented as a completed transaction.
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\n"
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    inventory = patches.inspect_transactions(root)
+    row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
