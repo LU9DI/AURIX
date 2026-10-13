@@ -117,6 +117,19 @@ aurix --benchmark benchmarks/smoke.json --benchmark-repetitions 3 \
 
 The comparison is descriptive, not a significance test. Hold model/provider, prompt configuration, hardware, and runtime settings constant where possible. Criteria-based acceptance and estimated token counts do not establish semantic correctness or billing cost.
 
+### Direct public URL access (without MCP)
+
+AURIX can read a specific public page through its built-in HTTP research adapter; MCP is not required for this read-only path. Configure an explicit hostname allowlist before asking the model to open a link:
+
+```powershell
+$env:AURIX_WEB_ALLOWED_DOMAINS = "docs.python.org,github.com"
+aurix "Read https://docs.python.org/3/library/asyncio.html and summarize cancellation behavior"
+```
+
+Use the equivalent `export AURIX_WEB_ALLOWED_DOMAINS="docs.python.org,github.com"` in POSIX shells. Hostnames must be explicitly listed; `*.example.org` permits subdomains of that suffix. This is an operator-level authorization boundary, not an authorization to access private accounts. The tool makes bounded GET requests only, rejects non-public IP targets, pins connections to validated public addresses, checks `robots.txt`, does not follow redirects, and accepts only HTML/plain-text/Markdown. It does not log in, reuse browser cookies, submit forms, click buttons, bypass CAPTCHAs, or modify a website. Pages are untrusted data and may contain prompt-injection attempts; do not treat their instructions as trusted.
+
+For JavaScript-heavy sites, authenticated sessions, or workflows requiring clicks, a separately reviewed browser adapter is still needed. Do not enable general browser control by simply reusing a personal browser profile. See [web access and agent autonomy design](docs/reverse-engineering/web-access-and-autonomy.md).
+
 ### REA-assisted research of open-source agent harnesses
 
 AURIX includes a bounded adapter for the external REA CLI and a documented workflow for studying public AI coding agents and model harnesses. The research process pins upstream revisions, checks licenses, records file-level evidence, separates observations from inference, and requires isolated experiments before adopting runtime behavior. Start with the [research guide](docs/reverse-engineering/README.md), [target catalogue](docs/reverse-engineering/target-catalog.md), [methodology](docs/reverse-engineering/methodology.md), and [evidence schema](docs/reverse-engineering/evidence-schema.md). REA is an analysis adapter, not a sandbox; the target application is not launched by the static JavaScript/Electron analysis command.
