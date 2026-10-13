@@ -2015,3 +2015,18 @@ def test_inspection_flags_finalization_without_finalization_audit_event(tmp_path
     assert row["status"] == "manual_intervention_required"
     assert "recovery audit event does not match" in row["reason"]
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+
+
+def test_inspection_requires_review_when_audit_append_lock_exists(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    lock_path = root / ".aurix" / "audit.lock"
+    lock_path.write_text(json.dumps({"pid": 12345, "created_at": 1}), encoding="utf-8")
+
+    report = inspect_transactions(root)
+
+    assert report["status"] == "manual_intervention_required"
+    row = report["transactions"][0]
+    assert row["status"] == "manual_intervention_required"
+    assert "audit append lock exists" in row["reason"]
+    assert lock_path.exists()
