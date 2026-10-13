@@ -1601,12 +1601,14 @@ def test_apply_detects_same_target_edit_racing_git_apply(tmp_path, monkeypatch):
         return result
 
     monkeypatch.setattr(patches, "_git", race_target_then_apply)
-    with pytest.raises(RuntimeError, match="final tracked status differs from expectation"):
+    with pytest.raises(RuntimeError, match="Applied target contents differ"):
         apply_proposal(root, proposal_id, confirm=True)
 
     assert injected is True
+    # The inverse no longer applies exactly, so preserve both the proposal and
+    # the concurrent edit for explicit manual recovery rather than risk data loss.
     assert (root / "app.py").read_text(encoding="utf-8") == (
-        "value = 'old'\n# concurrent edit\n"
+        "value = 'new'\n# concurrent edit\n"
     )
     journal = json.loads(
         (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
