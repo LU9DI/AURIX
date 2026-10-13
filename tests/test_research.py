@@ -316,3 +316,46 @@ def test_robots_policy_rejects_invalid_utf8(monkeypatch):
     )
     with httpx.Client(transport=transport) as client:
         assert research._robots_allows(client, "https://example.org/public", 2.0) is False
+
+def test_research_adapter_skips_oversized_search_result_urls(monkeypatch):
+    import json
+
+    from aurix import research
+
+    class DummyClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(research.httpx, "Client", lambda **kwargs: DummyClient())
+
+    def fake_get_limited(client, url, **kwargs):
+        assert "/search?" in url
+        return (
+            200,
+            {"content-type": "application/json"},
+            json.dumps(
+                {
+                    "results": [
+                        {
+                            "url": "https://example.org/" + ("a" * 2048),
+                            "title": "Oversized URL",
+                            "content": "untrusted snippet",
+                        }
+                    ]
+                }
+            ).encode(),
+        )
+
+    monkeypatch.setattr(research, "_get_limited", fake_get_limited)
+    monkeypatch.setattr(
+        research,
+        "_assert_public_http_url",
+        lambda url: (_ for _ in ()).throw(AssertionError("oversized URL must be skipped")),
+    )
+    result = research.SearxResearchAdapter(
+        "https://search.example", fetch_pages=True
+    )("test query")
+    assert result == ""
