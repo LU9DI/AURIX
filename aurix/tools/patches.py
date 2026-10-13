@@ -13,6 +13,7 @@ import re
 import subprocess
 import stat
 import time
+import tempfile
 from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -554,12 +555,15 @@ def _write_transaction_journal(
 ) -> None:
     """Durably replace a journal record; incomplete records require manual recovery."""
     path = _transaction_journal_path(workspace, proposal_id)
-    temp = path.with_name(path.name + f".{os.getpid()}.tmp")
     payload = (
         json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
     ).encode("utf-8")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(temp, flags, 0o600)
+    # Unique same-directory names prevent stale crash leftovers or PID reuse from
+    # blocking later journal updates, while preserving atomic os.replace semantics.
+    fd, temp_name = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=path.parent
+    )
+    temp = Path(temp_name)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(payload)
@@ -579,7 +583,8 @@ def _write_transaction_journal(
     finally:
         try:
             temp.unlink()
-        except FileNotFoundError:
+        except OSError:
+            # Cleanup must not mask the primary write/replace failure.
             pass
 
 
