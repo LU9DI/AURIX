@@ -179,3 +179,26 @@ def test_manifest_dangling_symlink_is_not_treated_as_legacy(tmp_path):
 
     with pytest.raises(PermissionError, match="Unsafe proposal manifest"):
         verify_proposal_integrity(proposal, "abcdef123456")
+
+
+
+def test_manifest_directory_is_rejected(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_bytes(b"patch")
+    proposal.with_suffix(".json").mkdir()
+
+    with pytest.raises(PermissionError, match="Unsafe proposal manifest"):
+        verify_proposal_integrity(proposal, "abcdef123456")
+
+
+def test_manifest_over_size_limit_is_rejected(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_bytes(b"patch")
+    proposal.with_suffix(".json").write_bytes(b" " * 16_385)
+
+    with pytest.raises(PermissionError, match="Unsafe proposal manifest"):
+        verify_proposal_integrity(proposal, "abcdef123456")
