@@ -147,8 +147,6 @@ def test_domain_allowlist_matches_exact_hosts_and_subdomain_wildcards():
 
 
 def test_direct_url_fetch_returns_bounded_untrusted_text(monkeypatch):
-    import httpx
-
     from aurix import research
 
     class DummyClient:
