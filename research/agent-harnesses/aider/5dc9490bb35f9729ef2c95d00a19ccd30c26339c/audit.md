@@ -208,3 +208,14 @@ The review now confirms a meaningful distinction between interactive command con
 - **CI:** [run 38325373901](https://github.com/LU9DI/AURIX/actions/runs/38325373901) passed compile and Ruff and completed **331 tests in 15.86 seconds**.
 - **Commit:** [776220d](https://github.com/LU9DI/AURIX/commit/776220dab8ad4f29e1d180fd217221fd1dfbb807).
 - **Scope:** this validates static symlink-parent rejection. It does not close a TOCTOU race if an external actor replaces a checked path between validation and the later Git operation.
+
+
+
+## Ninth-pass finding: proposal bytes and digest could come from different reads
+
+- **Issue:** patch application previously loaded the proposal text with `read_text()`, then independently hashed a second `read_bytes()` result. An external writer swapping the proposal between those reads could cause the in-memory patch and recorded digest to describe different byte sequences. A later digest check only confirmed the second sequence remained stable; it did not bind the already-loaded text to that digest.
+- **Fix:** read the proposal once into `proposal_bytes`, decode that exact snapshot as UTF-8, and calculate its SHA-256 from the same bytes. The existing later read still detects subsequent proposal changes.
+- **Regression test:** `test_apply_hashes_the_exact_proposal_bytes_it_decodes` simulates the swap at the former text-read boundary and asserts that the approved in-memory patch and on-disk proposal cannot silently diverge.
+- **Commits:** [fix 8f781e5](https://github.com/LU9DI/AURIX/commit/8f781e5d1f43d7a6ddd178370ee3b79495411c79) and [test 7de90e3](https://github.com/LU9DI/AURIX/commit/7de90e3ae5846c358c29edf65ba382ed1684168f).
+- **Verification:** [fix CI](https://github.com/LU9DI/AURIX/actions/runs/38325685375) and [test CI](https://github.com/LU9DI/AURIX/actions/runs/38325700577) were running when this entry was written; confirm final results before treating the regression as verified.
+- **Limit:** this removes the inconsistent two-read window. It does not eliminate all races involving external filesystem changes during later Git operations.
