@@ -480,7 +480,6 @@ def test_rea_parent_exit_does_not_leave_pipe_holding_descendant(monkeypatch, tmp
     import os
     import subprocess
     import sys
-    import time
 
     if os.name != "posix":
         pytest.skip("process-group termination is POSIX-specific")
