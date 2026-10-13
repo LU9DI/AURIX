@@ -1749,4 +1749,4 @@ def test_audit_gate_rejects_non_boolean_passing_result(tmp_path):
 
     with pytest.raises(PermissionError, match="exact patch"):
         apply_proposal(root, proposal_id, confirm=True, require_audit_gate=True)
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
