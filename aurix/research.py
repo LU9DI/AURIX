@@ -314,16 +314,18 @@ class SearxResearchAdapter:
                             timeout=self.timeout_seconds,
                         )
                         if page_status == 200:
-                            content_type = page_headers.get("content-type", "").lower()
-                            if (
-                                "text/html" in content_type
-                                or "application/xhtml+xml" in content_type
-                            ):
+                            content_type = (
+                                page_headers.get("content-type", "")
+                                .split(";", 1)[0]
+                                .strip()
+                                .lower()
+                            )
+                            if content_type in {"text/html", "application/xhtml+xml"}:
                                 body = clean_html(
                                     page_bytes.decode("utf-8", errors="replace"),
                                     max_chars=min(5000, self.max_chars // self.max_results),
                                 )
-                            elif "text/plain" in content_type or "text/markdown" in content_type:
+                            elif content_type in {"text/plain", "text/markdown"}:
                                 body = page_bytes.decode("utf-8", errors="replace")[:5000]
                     except (ValueError, httpx.HTTPError, UnicodeError):
                         body = ""
@@ -428,12 +430,14 @@ def fetch_authorized_public_url(
             timeout=timeout_seconds,
             raise_for_status=False,
         )
-    content_type = headers.get("content-type", "").lower()
+    content_type = (
+        headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    )
     if status != 200:
         raise ValueError(f"Page returned HTTP status {status}; redirects are not followed")
-    if "text/html" in content_type or "application/xhtml+xml" in content_type:
+    if content_type in {"text/html", "application/xhtml+xml"}:
         content = clean_html(body.decode("utf-8", errors="replace"), max_chars=max_chars)
-    elif "text/plain" in content_type or "text/markdown" in content_type:
+    elif content_type in {"text/plain", "text/markdown"}:
         content = body.decode("utf-8", errors="replace")[:max_chars]
     else:
         raise ValueError("Only HTML, plain text, and Markdown pages are supported")
