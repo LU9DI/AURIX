@@ -127,6 +127,22 @@ def _is_sensitive(path: Path) -> bool:
     )
 
 
+def _iter_workspace_paths(root: Path, start: Path | None = None):
+    """Walk workspace entries while pruning ignored and symlinked directories."""
+    base = start or root
+    for current, directories, files in os.walk(base, topdown=True, followlinks=False):
+        current_path = Path(current)
+        directories[:] = sorted(
+            name
+            for name in directories
+            if not (current_path / name).is_symlink()
+            and not _is_ignored((current_path / name).relative_to(root))
+            and not _is_sensitive(current_path / name)
+        )
+        for name in sorted((*directories, *files)):
+            yield current_path / name
+
+
 def list_files(workspace: Path, relative_path: str = ".", *, limit: int = 200) -> list[str]:
     root = workspace.resolve()
     target = safe_path(root, relative_path)
@@ -134,7 +150,7 @@ def list_files(workspace: Path, relative_path: str = ".", *, limit: int = 200) -
         raise NotADirectoryError(str(target))
     result: list[str] = []
     cap = max(1, min(int(limit), 1000))
-    for path in sorted(target.rglob("*")):
+    for path in sorted(_iter_workspace_paths(root, target)):
         relative = path.relative_to(root)
         if _is_ignored(relative) or path.is_symlink() or _is_sensitive(path):
             continue
@@ -264,7 +280,7 @@ def search_text(
     needle = query.casefold()
     results: list[dict[str, object]] = []
     cap = max(1, min(int(limit), 100))
-    for path in sorted(root.rglob("*")):
+    for path in sorted(_iter_workspace_paths(root)):
         if len(results) >= cap:
             break
         if not path.is_file() or path.is_symlink():
@@ -290,7 +306,7 @@ def build_workspace_context(workspace: Path, *, max_chars: int = 24000, max_file
     """Build bounded context; repository content is untrusted data, never instructions."""
     root = workspace.resolve()
     candidates: list[Path] = []
-    for path in root.rglob("*"):
+    for path in _iter_workspace_paths(root):
         if not path.is_file() or path.is_symlink():
             continue
         relative = path.relative_to(root)
