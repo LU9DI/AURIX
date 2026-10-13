@@ -36,23 +36,30 @@ class _TextExtractor(HTMLParser):
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.depth = 0
+        self.blocked_stack: list[str] = []
         self.parts: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() in self.BLOCKED:
-            self.depth += 1
-        elif self.depth == 0 and tag.lower() in self.BLOCK:
+        normalized = tag.lower()
+        if normalized in self.BLOCKED:
+            self.blocked_stack.append(normalized)
+        elif not self.blocked_stack and normalized in self.BLOCK:
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in self.BLOCKED and self.depth:
-            self.depth -= 1
-        elif self.depth == 0 and tag.lower() in self.BLOCK:
+        normalized = tag.lower()
+        if normalized in self.BLOCKED:
+            # Only a matching end tag may close a blocked region. Unrelated or
+            # malformed end tags must not expose script/style contents.
+            for index in range(len(self.blocked_stack) - 1, -1, -1):
+                if self.blocked_stack[index] == normalized:
+                    del self.blocked_stack[index:]
+                    break
+        elif not self.blocked_stack and normalized in self.BLOCK:
             self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        if self.depth == 0 and data.strip():
+        if not self.blocked_stack and data.strip():
             self.parts.append(data.strip())
 
 
