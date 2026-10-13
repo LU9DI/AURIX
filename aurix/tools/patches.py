@@ -1726,6 +1726,28 @@ def _revert_proposal_locked(
     before_status = status.stdout.strip()
     if _git_head(root) != initial_head or _tracked_status(root) != before_status:
         raise PermissionError("Repository changed during reversal preflight; refusing to revert")
+    journal_path = _transaction_journal_path(root, proposal_id)
+    transaction: dict[str, object] | None = None
+    if journal_path.exists():
+        transaction_value = _load_strict_json(
+            _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
+            ).decode("utf-8")
+        )
+        if (
+            not isinstance(transaction_value, dict)
+            or transaction_value.get("proposal_id") != proposal_id
+            or transaction_value.get("state") != "applied_and_audited"
+            or transaction_value.get("patch_sha256") != hashlib.sha256(patch.encode("utf-8")).hexdigest()
+        ):
+            raise PermissionError(
+                "Transaction journal does not match the applied proposal; manual recovery is required"
+            )
+        transaction = dict(transaction_value)
+        transaction.update(
+            state="reverting", updated_at=time.time(), recovery="pending_verification"
+        )
+        _write_transaction_journal(root, proposal_id, transaction)
     result = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
     if _git_head(root) != initial_head:
         raise RuntimeError(
@@ -1734,6 +1756,24 @@ def _revert_proposal_locked(
         )
     if result.returncode != 0:
         raise RuntimeError(f"Patch reversal failed: {result.stderr.strip()[:500]}")
+    def mark_reverted_and_audited() -> None:
+        if transaction is not None:
+            transaction.update(
+                state="reverted_and_audited",
+                updated_at=time.time(),
+                recovery="verified",
+            )
+            _write_transaction_journal(root, proposal_id, transaction)
+
+    def restore_applied_journal() -> None:
+        if transaction is not None:
+            transaction.update(
+                state="applied_and_audited",
+                updated_at=time.time(),
+                recovery="verified",
+            )
+            _write_transaction_journal(root, proposal_id, transaction)
+
     after_status = _tracked_status(root)
     if not after_status:
         try:
@@ -1761,9 +1801,11 @@ def _revert_proposal_locked(
                     "Reversal audit logging failed and recovery could not be verified. "
                     "Recovery status: manual_intervention_required."
                 ) from exc
+            restore_applied_journal()
             raise RuntimeError(
                 "Reversal audit logging failed; original patch was restored"
             ) from exc
+        mark_reverted_and_audited()
         return {
             "proposal_id": proposal_id,
             "status": "reverted",
@@ -1807,7 +1849,9 @@ def _revert_proposal_locked(
                 "Reversal audit logging failed and recovery could not be verified. "
                 "Recovery status: manual_intervention_required."
             ) from exc
+        restore_applied_journal()
         raise RuntimeError("Reversal audit logging failed; original patch was restored") from exc
+    mark_reverted_and_audited()
     return {
         "proposal_id": proposal_id,
         "status": "reverted",
