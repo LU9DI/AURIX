@@ -280,7 +280,11 @@ class SearxResearchAdapter:
                 headers={"Accept": "application/json"},
                 timeout=self.timeout_seconds,
             )
-            payload = json.loads(search_bytes)
+            try:
+                payload = json.loads(search_bytes)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # Invalid provider output is untrusted and must not crash the research task.
+                return ""
             results = payload.get("results", []) if isinstance(payload, dict) else []
             if not isinstance(results, list):
                 # A malformed or unexpected search-provider response is not evidence.
