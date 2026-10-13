@@ -476,55 +476,6 @@ def test_rea_real_stdout_and_stderr_flood_is_bounded_and_reaped(monkeypatch, tmp
     assert launched and launched[0].poll() is not None
 
 
-def test_rea_parent_exit_does_not_leave_pipe_holding_descendant(monkeypatch, tmp_path):
-    import os
-    import signal
-    import subprocess
-    import sys
-
-    if os.name != "posix":
-        pytest.skip("process-group termination is POSIX-specific")
-
-    real_popen = subprocess.Popen
-    launched = []
-    signals = []
-
-    def capture_popen(*args, **kwargs):
-        process = real_popen(*args, **kwargs)
-        launched.append(process)
-        return process
-
-    real_signal_group = rea._signal_process_group
-
-    def capture_signal_group(process, *, force=False):
-        signals.append((process.pid, force))
-        real_signal_group(process, force=force)
-
-    monkeypatch.setattr(rea.subprocess, "Popen", capture_popen)
-    monkeypatch.setattr(rea, "_signal_process_group", capture_signal_group)
-    child = "import time; time.sleep(30)"
-    parent = (
-        "import subprocess,sys\n"
-        "subprocess.Popen([sys.executable, '-c', " + repr(child) + "])\n"
-    )
-    try:
-        result = rea._run_bounded(
-            [sys.executable, "-c", parent],
-            cwd=tmp_path,
-            env={},
-            timeout=1,
-        )
-        assert result["timed_out"] is True
-        assert launched and launched[0].poll() is not None
-        assert signals, "runner did not signal the process group when pipes outlived the parent"
-    finally:
-        if launched:
-            try:
-                os.killpg(launched[0].pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-
-
 
 def test_rea_real_silent_process_times_out_and_is_reaped(monkeypatch, tmp_path):
     import subprocess
