@@ -55,6 +55,23 @@ def test_apply_and_revert_reviewed_proposal(tmp_path):
     assert "old" in (root / "app.py").read_text(encoding="utf-8")
 
 
+def test_revert_updates_transaction_journal_to_terminal_state(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+
+    result = revert_proposal(root, proposal_id, confirm=True)
+
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert result["transaction"] == "reverted_and_audited"
+    assert journal["state"] == "reverted_and_audited"
+    assert journal["recovery"] == "verified"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+    report = inspect_transactions(root)
+    assert report["status"] == "inspected"
+    assert report["transactions"][0]["status"] == "consistent_terminal_record"
+
+
 def test_apply_refuses_dirty_tracked_worktree(tmp_path):
     root, proposal_id = make_repo(tmp_path)
     (root / "app.py").write_text("user edit\n", encoding="utf-8")
