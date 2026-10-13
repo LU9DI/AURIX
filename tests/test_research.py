@@ -445,3 +445,34 @@ def test_research_adapter_fails_closed_on_malformed_result_lists(
         "https://search.example", fetch_pages=False
     )("test query")
     assert result == ""
+
+
+
+@pytest.mark.parametrize("malformed_payload", [b"{not-json", b"\xff\xfe"])
+def test_research_adapter_fails_closed_on_invalid_search_json(
+    monkeypatch, malformed_payload
+):
+    from aurix import research
+
+    class DummyClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(research.httpx, "Client", lambda **kwargs: DummyClient())
+    monkeypatch.setattr(
+        research,
+        "_get_limited",
+        lambda *args, **kwargs: (
+            200,
+            {"content-type": "application/json"},
+            malformed_payload,
+        ),
+    )
+
+    result = research.SearxResearchAdapter(
+        "https://search.example", fetch_pages=False
+    )("test query")
+    assert result == ""
