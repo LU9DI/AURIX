@@ -1750,3 +1750,36 @@ def test_audit_gate_rejects_non_boolean_passing_result(tmp_path):
     with pytest.raises(PermissionError, match="exact patch"):
         apply_proposal(root, proposal_id, confirm=True, require_audit_gate=True)
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("baseline_result", {"passed": False, "returncode": 1}),
+        ("test_result", {"passed": True, "returncode": 1}),
+    ],
+)
+def test_audit_gate_rejects_failed_process_exit_codes(tmp_path, field, value):
+    root, proposal_id = make_repo(tmp_path)
+    _write_passing_audit(root, proposal_id)
+    path = root / ".aurix" / "audits" / f"{proposal_id}.json"
+    audit = json.loads(path.read_text(encoding="utf-8"))
+    verification = audit["verification"]
+    verification[field] = value
+    evidence = {
+        key: verification.get(key)
+        for key in (
+            "audit_id", "verification_id", "proposal_id", "proposal_sha256",
+            "base_commit", "target_state_sha256", "suite", "requested_suite",
+            "test_selection", "isolation", "sandbox_image", "sandbox_image_id",
+            "runtime_fingerprint", "baseline_result", "test_result", "regression_status",
+        )
+    }
+    verification["evidence_sha256"] = hashlib.sha256(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+    path.write_text(json.dumps(audit), encoding="utf-8")
+
+    with pytest.raises(PermissionError, match="exact patch"):
+        apply_proposal(root, proposal_id, confirm=True, require_audit_gate=True)
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
