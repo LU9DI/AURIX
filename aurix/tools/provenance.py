@@ -100,7 +100,9 @@ def append_audit_event(
             raise ValueError("Audit log contains too many events")
         for raw in raw_lines:
             try:
-                item = json.loads(raw)
+                item = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+                if not isinstance(item, dict):
+                    raise TypeError("audit event must be a JSON object")
                 digest = item.pop("event_hash")
             except (json.JSONDecodeError, KeyError, TypeError) as exc:
                 raise ValueError("Audit log integrity check failed") from exc
