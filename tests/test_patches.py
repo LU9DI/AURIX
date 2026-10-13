@@ -1542,6 +1542,42 @@ def test_apply_audit_failure_rolls_back_and_records_terminal_journal(tmp_path, m
     assert journal["recovery"] == "verified"
 
 
+def test_apply_audit_failure_preserves_concurrent_unrelated_tracked_edit(tmp_path, monkeypatch):
+    """Rollback may undo the exact proposal, but must never erase a concurrent edit."""
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    unrelated = root / "other.py"
+    unrelated.write_text("value = 'baseline'\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "other.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", "add unrelated tracked file"],
+        check=True,
+        capture_output=True,
+    )
+
+    def edit_unrelated_then_fail(*args, **kwargs):
+        unrelated.write_text("value = 'external edit'\n", encoding="utf-8")
+        raise OSError("simulated audit storage failure after concurrent edit")
+
+    monkeypatch.setattr(patches, "append_audit_event", edit_unrelated_then_fail)
+    with pytest.raises(RuntimeError, match="final tracked status differs from expectation"):
+        patches.apply_proposal(root, proposal_id, confirm=True)
+
+    # The proposal's exact change was reversed, while the independent edit remains.
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+    assert unrelated.read_text(encoding="utf-8") == "value = 'external edit'\n"
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    inventory = patches.inspect_transactions(root)
+    row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
+
+
 def test_apply_terminal_journal_failure_is_reported_as_interrupted(tmp_path, monkeypatch):
     from aurix.tools import patches
 
