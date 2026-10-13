@@ -613,7 +613,13 @@ def _assert_no_incomplete_transaction(workspace: Path, proposal_id: str) -> None
 
 def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, tuple[str, str | None]], str | None]:
     """Verify the complete local audit chain and return each proposal's latest lifecycle event."""
-    log = root / ".aurix" / "audit.jsonl"
+    metadata = root / ".aurix"
+    lock_path = metadata / "audit.lock"
+    if metadata.is_symlink() or lock_path.is_symlink():
+        return {}, "audit metadata or append lock is a symlink"
+    if lock_path.exists():
+        return {}, "audit append lock exists; active or stale append requires manual review"
+    log = metadata / "audit.jsonl"
     try:
         raw = _read_regular_file(log, max_bytes=10_000_000, label="Audit log")
     except FileNotFoundError:
