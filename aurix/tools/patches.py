@@ -1820,6 +1820,7 @@ def _revert_proposal_locked(
         if forward_check.returncode == 0:
             forward = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
             if forward.returncode == 0 and _tracked_status(root) == before_status:
+                restore_applied_journal()
                 raise RuntimeError(
                     "Reversal changed unexpected tracked state; original patch was restored"
                 )
