@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+import aurix.tools.provenance as provenance
 from aurix.tools.provenance import append_audit_event, register_proposal, verify_proposal_integrity
 from aurix.tools.review import review_proposal
 
@@ -227,3 +228,39 @@ def test_audit_log_directory_is_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="bounded regular file"):
         append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+
+
+
+def test_register_proposal_removes_unchanged_manifest_when_audit_fails(tmp_path, monkeypatch):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_text("--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n", encoding="utf-8")
+
+    def fail_audit(*args, **kwargs):
+        raise OSError("simulated audit failure")
+
+    monkeypatch.setattr(provenance, "append_audit_event", fail_audit)
+    with pytest.raises(RuntimeError, match="creation audit event failed"):
+        register_proposal(tmp_path, proposal, "abcdef123456")
+    assert not (proposal_dir / "abcdef123456.manifest.json").exists()
+
+
+def test_register_proposal_preserves_manifest_replaced_during_audit_failure(
+    tmp_path, monkeypatch
+):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_text("--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n", encoding="utf-8")
+    manifest_path = proposal_dir / "abcdef123456.manifest.json"
+    replacement = b'{"replacement":true}\n'
+
+    def replace_then_fail(*args, **kwargs):
+        manifest_path.write_bytes(replacement)
+        raise OSError("simulated audit failure after replacement")
+
+    monkeypatch.setattr(provenance, "append_audit_event", replace_then_fail)
+    with pytest.raises(RuntimeError, match="creation audit event failed"):
+        register_proposal(tmp_path, proposal, "abcdef123456")
+    assert manifest_path.read_bytes() == replacement
