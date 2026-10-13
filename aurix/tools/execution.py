@@ -53,7 +53,7 @@ def _docker_command(
     if ".." in image or any(char.isspace() for char in image):
         raise ValueError("Invalid Docker image reference")
     command = (
-        ["python", "-m", "pytest", "-q", *(test_paths or [])]
+        ["python", "-m", "pytest", "-q", "--", *(test_paths or [])]
         if suite == "pytest"
         else ["python", "-m", "ruff", "check", "."]
     )
@@ -180,7 +180,7 @@ def run_test_suite(
         container_name = None
         image_id = None
         command = (
-            [sys.executable, "-m", "pytest", "-q", *(test_paths or [])]
+            [sys.executable, "-m", "pytest", "-q", "--", *(test_paths or [])]
             if suite == "pytest"
             else [sys.executable, "-m", "ruff", "check", "."]
         )
@@ -188,9 +188,11 @@ def run_test_suite(
 
     if test_paths is not None:
         for relative in test_paths:
-            original = root / relative
-            if original.is_symlink():
-                raise ValueError("Test path must not be a symlink")
+            original = root
+            for part in Path(relative).parts:
+                original = original / part
+                if original.is_symlink():
+                    raise ValueError("Test path components must not be symlinks")
             candidate = original.resolve(strict=True)
             if root not in candidate.parents or not candidate.is_file():
                 raise ValueError("Test path must be an existing regular file inside the workspace")
