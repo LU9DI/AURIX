@@ -591,7 +591,7 @@ def _assert_no_incomplete_transaction(workspace: Path, proposal_id: str) -> None
         record = _load_strict_json(
                     _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")
                 )
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
         raise PermissionError(
             "Transaction journal is unreadable; manual recovery is required"
         ) from exc
@@ -652,7 +652,7 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
             record = _load_strict_json(
                     _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")
                 )
-        except (OSError, UnicodeError, json.JSONDecodeError):
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             row.update(status="manual_intervention_required", reason="journal is unreadable")
             rows.append(row)
             continue
@@ -909,7 +909,7 @@ def recover_transaction(
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
             journal = _load_strict_json(journal_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError(
                 "Transaction journal is unreadable; manual recovery is required"
             ) from exc
@@ -1077,7 +1077,7 @@ def finalize_interrupted_recovery(
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
             journal = _load_strict_json(journal_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError(
                 "Transaction journal is unreadable; manual recovery is required"
             ) from exc
@@ -1298,7 +1298,7 @@ def _apply_proposal_locked(
             raise PermissionError("A passing audit record is required before application")
         try:
             audit = _load_strict_json(audit_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError("Audit evidence is unreadable; refusing application") from exc
         verification = audit.get("verification", {})
         review = audit.get("review", {})
