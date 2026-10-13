@@ -1854,7 +1854,7 @@ def test_inspection_rejects_corrupted_audit_chain_for_terminal_journal(tmp_path)
     events = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
     events[-1]["event"] = "proposal_reverted"
     audit_path.write_text(
-        "".join(json.dumps(event, sort_keys=True, ensure_ascii=False) + "\\n" for event in events),
+        "".join(json.dumps(event, sort_keys=True, ensure_ascii=False) + "\n" for event in events),
         encoding="utf-8",
     )
 
