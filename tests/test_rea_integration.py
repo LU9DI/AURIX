@@ -499,8 +499,7 @@ def test_rea_parent_exit_does_not_leave_pipe_holding_descendant(monkeypatch, tmp
         "import signal,time; from pathlib import Path; "
         f"marker=Path({str(marker)!r}); "
         "signal.signal(signal.SIGTERM, lambda *a: (marker.write_text('terminated'), exit(0))); "
-        "while_loop=True\\n"
-        "while while_loop: time.sleep(0.05)"
+        "time.sleep(30)"
     )
     parent = (
         "import subprocess,sys; "
