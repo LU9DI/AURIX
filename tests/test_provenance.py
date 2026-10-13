@@ -18,6 +18,38 @@ def test_manifest_detects_proposal_tampering(tmp_path):
         review_proposal(tmp_path, "abcdef123456")
 
 
+def test_manifest_rejects_boolean_schema_version(tmp_path):
+    import hashlib
+
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_text("patch", encoding="utf-8")
+    manifest = {
+        "schema_version": True,
+        "proposal_id": "abcdef123456",
+        "sha256": hashlib.sha256(b"patch").hexdigest(),
+        "size_bytes": 5,
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    proposal.with_suffix(".json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="identity"):
+        verify_proposal_integrity(proposal, "abcdef123456")
+
+
+def test_manifest_rejects_duplicate_json_keys(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_text("patch", encoding="utf-8")
+    proposal.with_suffix(".json").write_text(
+        '{"schema_version":1,"schema_version":1,"proposal_id":"abcdef123456"}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="unreadable"):
+        verify_proposal_integrity(proposal, "abcdef123456")
+
+
 def test_audit_hash_chain_detects_modified_event(tmp_path):
     append_audit_event(tmp_path, "proposal_created", "abcdef123456", {"sha256": "abc"})
     append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456", {"risk_level": "low"})
