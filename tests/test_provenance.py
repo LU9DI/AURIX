@@ -264,3 +264,35 @@ def test_register_proposal_preserves_manifest_replaced_during_audit_failure(
     with pytest.raises(RuntimeError, match="creation audit event failed"):
         register_proposal(tmp_path, proposal, "abcdef123456")
     assert manifest_path.read_bytes() == replacement
+
+
+
+def test_register_proposal_rejects_symlink_input(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    outside = tmp_path / "outside.diff"
+    outside.write_text("safe diff", encoding="utf-8")
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.symlink_to(outside)
+    with pytest.raises(PermissionError, match="symlink"):
+        register_proposal(tmp_path, proposal, "abcdef123456")
+
+
+def test_register_proposal_rejects_oversized_input(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_bytes(b"x" * 100_001)
+    with pytest.raises(ValueError, match="size limit"):
+        register_proposal(tmp_path, proposal, "abcdef123456")
+
+
+def test_verify_proposal_integrity_rejects_symlink_input(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    outside = tmp_path / "outside.diff"
+    outside.write_text("safe diff", encoding="utf-8")
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.symlink_to(outside)
+    with pytest.raises(PermissionError, match="symlink"):
+        verify_proposal_integrity(proposal, "abcdef123456")
