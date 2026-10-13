@@ -1303,3 +1303,26 @@ def test_apply_rejects_case_variant_protected_patch_paths(tmp_path, protected_pa
     with pytest.raises(PermissionError, match="Unsafe path"):
         apply_proposal(root, proposal_id, confirm=True)
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+
+
+
+def test_apply_rejects_patch_target_through_symlinked_parent(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    alias = root / "alias"
+    try:
+        alias.symlink_to(root, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks unavailable on this platform")
+    patch = (
+        "--- a/alias/app.py\n"
+        "+++ b/alias/app.py\n"
+        "@@ -1 +1 @@\n"
+        "-value = 'old'\n"
+        "+value = 'new'\n"
+    )
+    (root / ".aurix" / "proposals" / f"{proposal_id}.diff").write_text(
+        patch, encoding="utf-8"
+    )
+    with pytest.raises(PermissionError, match="Symlink paths"):
+        apply_proposal(root, proposal_id, confirm=True)
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
