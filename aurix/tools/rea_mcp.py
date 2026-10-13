@@ -170,6 +170,8 @@ class _StdioMCP:
                 raise ValueError("REA MCP emitted malformed JSON-RPC on stdout") from exc
             if not isinstance(response, dict) or response.get("id") != request_id:
                 continue
+            if response.get("jsonrpc") != "2.0":
+                raise ValueError("REA MCP emitted an invalid JSON-RPC version")
             if "error" in response:
                 error = response["error"]
                 raise RuntimeError(f"REA MCP {method} failed: {json.dumps(error)[:1000]}")
