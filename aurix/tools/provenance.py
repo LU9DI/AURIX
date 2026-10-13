@@ -45,8 +45,44 @@ def register_proposal(workspace: Path, proposal_path: Path, proposal_id: str) ->
     path = _metadata_path(proposal_path)
     if path.exists() or path.is_symlink():
         raise FileExistsError("Proposal manifest already exists")
-    _atomic_write(path, (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode())
-    append_audit_event(workspace, "proposal_created", proposal_id, {"sha256": manifest["sha256"]})
+    manifest_bytes = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode()
+    _atomic_write(path, manifest_bytes)
+    try:
+        append_audit_event(workspace, "proposal_created", proposal_id, {"sha256": manifest["sha256"]})
+    except Exception as exc:
+        # Compensate only when the path still names the exact manifest we created.
+        # Never delete a replacement or a file whose content changed concurrently.
+        try:
+            current = path.lstat()
+            if stat.S_ISREG(current.st_mode) and not stat.S_ISLNK(current.st_mode):
+                flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                fd = os.open(path, flags)
+                try:
+                    opened = os.fstat(fd)
+                    chunks = []
+                    remaining = len(manifest_bytes) + 1
+                    while remaining:
+                        chunk = os.read(fd, min(65536, remaining))
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        remaining -= len(chunk)
+                    unchanged = (
+                        (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+                        and b"".join(chunks) == manifest_bytes
+                    )
+                finally:
+                    os.close(fd)
+                latest = path.lstat()
+                if unchanged and (latest.st_dev, latest.st_ino) == (current.st_dev, current.st_ino):
+                    path.unlink()
+        except OSError:
+            # Keep evidence if compensation cannot be proven safe.
+            pass
+        raise RuntimeError(
+            "Proposal manifest was written but its creation audit event failed; "
+            "the manifest was removed only if it remained unchanged. Inspect workspace before retrying."
+        ) from exc
     return manifest
 
 
