@@ -33,8 +33,39 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, ob
     return result
 
 
+def _read_proposal_snapshot(path: Path) -> bytes:
+    """Read a bounded proposal snapshot without following a final symlink."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if getattr(exc, "errno", None) in {40, 62}:
+            raise PermissionError("Proposal must not be a symlink") from exc
+        raise
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise PermissionError("Proposal must be a regular file")
+        if info.st_size > 100_000:
+            raise ValueError("Proposal exceeds size limit")
+        chunks: list[bytes] = []
+        remaining = 100_001
+        while remaining:
+            chunk = os.read(fd, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > 100_000:
+            raise ValueError("Proposal exceeds size limit")
+        return payload
+    finally:
+        os.close(fd)
+
+
 def register_proposal(workspace: Path, proposal_path: Path, proposal_id: str) -> dict[str, Any]:
-    patch_bytes = proposal_path.read_bytes()
+    patch_bytes = _read_proposal_snapshot(proposal_path)
     manifest = {
         "schema_version": 1,
         "proposal_id": proposal_id,
@@ -95,7 +126,7 @@ def verify_proposal_integrity(
     decode or inspect, avoiding a hash/read time-of-check-to-time-of-use gap.
     """
     path = _metadata_path(proposal_path)
-    snapshot = proposal_path.read_bytes() if proposal_bytes is None else proposal_bytes
+    snapshot = _read_proposal_snapshot(proposal_path) if proposal_bytes is None else proposal_bytes
     # lstat distinguishes a genuinely absent manifest from a dangling symlink.
     try:
         entry_stat = path.lstat()
