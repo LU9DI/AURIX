@@ -300,3 +300,19 @@ def test_robots_policy_accepts_plain_text_rules(monkeypatch):
     with httpx.Client(transport=transport) as client:
         assert research._robots_allows(client, "https://example.org/public", 2.0) is True
         assert research._robots_allows(client, "https://example.org/private/data", 2.0) is False
+
+def test_robots_policy_rejects_invalid_utf8(monkeypatch):
+    import httpx
+
+    from aurix import research
+
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "text/plain; charset=utf-8"},
+            content=b"User-agent: *\\nDisallow: /private\\n\\xff",
+        )
+    )
+    with httpx.Client(transport=transport) as client:
+        assert research._robots_allows(client, "https://example.org/public", 2.0) is False
