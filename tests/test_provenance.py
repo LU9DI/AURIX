@@ -163,3 +163,19 @@ def test_manifest_verification_checks_the_supplied_byte_snapshot(tmp_path):
         verify_proposal_integrity(
             proposal, "abcdef123456", proposal_bytes=snapshot + b"extra"
         )
+
+
+
+def test_manifest_dangling_symlink_is_not_treated_as_legacy(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_bytes(b"patch")
+    manifest = proposal.with_suffix(".json")
+    try:
+        manifest.symlink_to(tmp_path / "missing-manifest-target")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this platform")
+
+    with pytest.raises(PermissionError, match="Unsafe proposal manifest"):
+        verify_proposal_integrity(proposal, "abcdef123456")
