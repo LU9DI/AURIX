@@ -615,6 +615,9 @@ def test_explicit_transaction_recovery_rolls_back_exact_patch_and_records_histor
     final = json.loads(journal_path.read_text(encoding="utf-8"))
     assert final["state"] == "rolled_back"
     assert final["recovery_history"][-1]["result"] == "verified"
+    report = inspect_transactions(root)
+    assert report["status"] == "inspected"
+    assert report["transactions"][0]["status"] == "consistent_terminal_record"
 
 
 def test_explicit_transaction_recovery_refuses_external_edit(tmp_path):
@@ -720,6 +723,9 @@ def test_finalize_interrupted_recovery_only_updates_journal_after_verified_basel
     final = json.loads(journal_path.read_text(encoding="utf-8"))
     assert final["state"] == "rolled_back"
     assert final["recovery_history"][-1]["result"] == "baseline_verified"
+    report = inspect_transactions(root)
+    assert report["status"] == "inspected"
+    assert report["transactions"][0]["status"] == "consistent_terminal_record"
 
 
 def test_finalize_interrupted_recovery_reports_audit_failure_after_terminal_state(
