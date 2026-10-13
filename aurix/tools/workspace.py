@@ -151,6 +151,8 @@ def list_files(workspace: Path, relative_path: str = ".", *, limit: int = 200) -
 
 def _read_regular_file_no_follow(target: Path, *, max_bytes: int) -> bytes:
     """Read a regular file without following a final-component symlink."""
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
     flags = os.O_RDONLY
     if hasattr(os, "O_BINARY"):
         flags |= os.O_BINARY
@@ -252,6 +254,12 @@ def search_text(
     """Case-insensitive literal search over safe, bounded text files."""
     if not query or not query.strip():
         raise ValueError("Search query must not be empty")
+    if (
+        isinstance(max_file_bytes, bool)
+        or not isinstance(max_file_bytes, int)
+        or max_file_bytes < 1
+    ):
+        raise ValueError("max_file_bytes must be a positive integer")
     root = workspace.resolve()
     needle = query.casefold()
     results: list[dict[str, object]] = []
