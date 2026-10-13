@@ -558,3 +558,53 @@ def test_review_proposal_rejects_extra_arguments(tmp_path):
     agent = Orchestrator(FakeProvider("{}"), workspace=tmp_path)
     with pytest.raises(ValueError, match="only a 12-character"):
         agent._call_tool("review_proposal", {"proposal_id": "a1b2c3d4e5f6", "apply": True})
+
+
+
+def test_orchestrator_can_read_an_explicitly_allowlisted_public_url(monkeypatch, tmp_path):
+    from aurix import orchestrator
+
+    monkeypatch.setenv("AURIX_WEB_ALLOWED_DOMAINS", "docs.example.org")
+    monkeypatch.setattr(
+        orchestrator,
+        "fetch_authorized_public_url",
+        lambda url, *, allowed_domains: {
+            "url": url,
+            "content": "Documentation says use bounded retries.",
+            "untrusted_content": True,
+        },
+    )
+    provider = SequenceProvider(
+        json.dumps(
+            {
+                "status": "tool_call",
+                "tool": "read_public_url",
+                "arguments": {"url": "https://docs.example.org/guide"},
+            }
+        ),
+        json.dumps(
+            {"status": "final", "message": "The documentation recommends bounded retries."}
+        ),
+    )
+    result = Orchestrator(provider, workspace=tmp_path).run("Read the approved documentation URL")
+    assert result.status == "completed"
+    assert "bounded retries" in provider.prompts[1]
+    assert "read_public_url" in provider.prompts[0]
+    assert "AURIX_WEB_ALLOWED_DOMAINS" in provider.prompts[0]
+
+
+def test_direct_url_tool_is_disabled_without_allowlist(monkeypatch, tmp_path):
+    monkeypatch.delenv("AURIX_WEB_ALLOWED_DOMAINS", raising=False)
+    provider = SequenceProvider(
+        json.dumps(
+            {
+                "status": "tool_call",
+                "tool": "read_public_url",
+                "arguments": {"url": "https://docs.example.org/guide"},
+            }
+        ),
+        json.dumps({"status": "final", "message": "Web access needs explicit configuration."}),
+    )
+    result = Orchestrator(provider, workspace=tmp_path).run("Read the documentation")
+    assert result.status == "completed"
+    assert "PermissionError" in provider.prompts[1]
