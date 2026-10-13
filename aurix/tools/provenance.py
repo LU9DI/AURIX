@@ -49,13 +49,20 @@ def register_proposal(workspace: Path, proposal_path: Path, proposal_id: str) ->
     return manifest
 
 
-def verify_proposal_integrity(proposal_path: Path, proposal_id: str) -> dict[str, Any]:
-    """Verify a manifest if present; legacy proposals are explicitly marked unsealed."""
+def verify_proposal_integrity(
+    proposal_path: Path, proposal_id: str, *, proposal_bytes: bytes | None = None
+) -> dict[str, Any]:
+    """Verify a manifest against one byte snapshot when supplied.
+
+    Passing ``proposal_bytes`` lets callers verify the exact bytes they subsequently
+    decode or inspect, avoiding a hash/read time-of-check-to-time-of-use gap.
+    """
     path = _metadata_path(proposal_path)
+    snapshot = proposal_path.read_bytes() if proposal_bytes is None else proposal_bytes
     if not path.exists():
         return {
             "integrity": "legacy_unsealed",
-            "sha256": hashlib.sha256(proposal_path.read_bytes()).hexdigest(),
+            "sha256": hashlib.sha256(snapshot).hexdigest(),
         }
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 16_384:
         raise PermissionError("Unsafe proposal manifest")
@@ -65,7 +72,7 @@ def verify_proposal_integrity(proposal_path: Path, proposal_id: str) -> dict[str
         )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("Proposal manifest is unreadable") from exc
-    actual = hashlib.sha256(proposal_path.read_bytes()).hexdigest()
+    actual = hashlib.sha256(snapshot).hexdigest()
     if (
         not isinstance(manifest, dict)
         or type(manifest.get("schema_version")) is not int
@@ -81,7 +88,7 @@ def verify_proposal_integrity(proposal_path: Path, proposal_id: str) -> dict[str
         or not isinstance(manifest_digest, str)
         or not re.fullmatch(r"[0-9a-f]{64}", manifest_digest)
         or manifest_digest != actual
-        or manifest_size != proposal_path.stat().st_size
+        or manifest_size != len(snapshot)
     ):
         raise PermissionError(
             "Proposal content changed after it was registered; refusing operation"
