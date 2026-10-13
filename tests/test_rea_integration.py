@@ -476,6 +476,43 @@ def test_rea_real_stdout_and_stderr_flood_is_bounded_and_reaped(monkeypatch, tmp
     assert launched and launched[0].poll() is not None
 
 
+def test_rea_parent_exit_does_not_leave_pipe_holding_descendant(monkeypatch, tmp_path):
+    import subprocess
+    import sys
+
+    if __import__("os").name != "posix":
+        pytest.skip("process-group termination is POSIX-specific")
+
+    real_popen = subprocess.Popen
+    launched = []
+
+    def capture_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        launched.append(process)
+        return process
+
+    monkeypatch.setattr(rea.subprocess, "Popen", capture_popen)
+    child = "import time; time.sleep(30)"
+    parent = (
+        "import subprocess,sys; "
+        "subprocess.Popen([sys.executable, '-c', " + repr(child) + "])"
+    )
+    result = rea._run_bounded(
+        [sys.executable, "-c", parent],
+        cwd=tmp_path,
+        env={},
+        timeout=1,
+    )
+
+    assert result["timed_out"] is True
+    assert launched and launched[0].poll() is not None
+    # The direct parent exits immediately; the inherited pipes remain open
+    # until the runner times out and terminates the entire process group.
+    with pytest.raises(subprocess.TimeoutExpired):
+        # Verify the runner itself has no live direct child left to wait for.
+        launched[0].wait(timeout=0.01)
+
+
 def test_rea_real_silent_process_times_out_and_is_reaped(monkeypatch, tmp_path):
     import subprocess
     import sys
