@@ -183,10 +183,11 @@ def _append_audit_event_locked(
             raise PermissionError("Audit log must not be a symlink") from exc
         raise ValueError("Audit log is unreadable") from exc
     else:
+        info = os.fstat(read_fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 10_000_000:
+            os.close(read_fd)
+            raise ValueError("Audit log is not a bounded regular file")
         with os.fdopen(read_fd, "rb") as stream:
-            info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_size > 10_000_000:
-                raise ValueError("Audit log is not a bounded regular file")
             log_identity = (info.st_dev, info.st_ino)
             raw_data = stream.read(10_000_001)
             if len(raw_data) > 10_000_000:
