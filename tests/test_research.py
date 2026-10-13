@@ -214,6 +214,50 @@ def test_direct_url_fetch_rejects_redirects_and_non_success_statuses(monkeypatch
     assert len(page_requests) == 1
     assert page_requests[0][1]["raise_for_status"] is False
 
+
+@pytest.mark.parametrize("content_type", ["application/pdf", "image/svg+xml", "application/octet-stream"])
+def test_direct_url_fetch_rejects_unsupported_content_types(monkeypatch, content_type):
+    from aurix import research
+
+    class DummyClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+    monkeypatch.setattr(research, "_robots_allows", lambda *args: True)
+    monkeypatch.setattr(research.httpx, "Client", lambda **kwargs: DummyClient())
+    monkeypatch.setattr(
+        research,
+        "_get_limited",
+        lambda *args, **kwargs: (
+            200,
+            {"content-type": content_type},
+            b"untrusted binary-like body",
+        ),
+    )
+    with pytest.raises(ValueError, match="Only HTML, plain text, and Markdown"):
+        research.fetch_authorized_public_url(
+            "https://docs.example.org/file",
+            allowed_domains=["docs.example.org"],
+        )
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
+def test_robots_policy_fails_closed_on_non_404_errors(monkeypatch, status):
+    import httpx
+
+    from aurix import research
+
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(status, content=b"not available")
+    )
+    with httpx.Client(transport=transport) as client:
+        assert research._robots_allows(client, "https://example.org/page", 2.0) is False
+
 def test_direct_url_tool_is_listed_in_agent_protocol():
     from aurix.orchestrator import SYSTEM_PROMPT
 
