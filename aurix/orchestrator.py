@@ -42,7 +42,7 @@ When verification fails, inspect the test output, create a NEW revised proposal,
 Respond with one JSON object, no markdown fences:
 - final: {"status":"final","message":"..."}
 - need context: {"status":"need_context","message":"..."}
-- tool request: {"status":"tool_call","tool":"inspect_project|list_files|read_file|search_text|git_status|git_diff|propose_patch|rea_analyze_app|rea_investigate|rea_mcp_investigate|consult_other_ais|verify_proposal","arguments":{...}}
+- tool request: {"status":"tool_call","tool":"inspect_project|list_files|read_file|search_text|git_status|git_diff|propose_patch|review_proposal|rea_analyze_app|rea_investigate|rea_mcp_investigate|consult_other_ais|read_public_url|verify_proposal","arguments":{...}}
 Use one tool per step, only when useful. Do not request shell commands or apply edits."""
 
 
