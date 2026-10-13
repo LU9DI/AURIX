@@ -1234,8 +1234,12 @@ def _apply_proposal_locked(
     initial_head = _git_head(root)
     proposal = _proposal_path(root, proposal_id)
     _assert_no_incomplete_transaction(root, proposal_id)
-    patch = proposal.read_text(encoding="utf-8")
-    patch_digest = hashlib.sha256(proposal.read_bytes()).hexdigest()
+    # Decode and hash the same byte snapshot. Separate read_text/read_bytes calls
+    # could observe different proposal contents if an external process swaps the
+    # file between reads, misbinding the applied patch to its recorded digest.
+    proposal_bytes = proposal.read_bytes()
+    patch = proposal_bytes.decode("utf-8")
+    patch_digest = hashlib.sha256(proposal_bytes).hexdigest()
     if require_audit_gate:
         audit_dir = root / ".aurix" / "audits"
         audit_path = audit_dir / f"{proposal_id}.json"
