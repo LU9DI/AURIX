@@ -1284,6 +1284,86 @@ def _target_state_digest(snapshot: object) -> str | None:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+
+def _expected_target_state_after_patch(
+    workspace: Path,
+    patch: str,
+    targets: Sequence[str],
+    baseline_snapshot: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Apply a patch to an isolated copy and hash its exact expected target contents."""
+    root = workspace.expanduser().resolve()
+    baseline = {item["path"]: item["sha256"] for item in baseline_snapshot}
+    expected_paths = sorted(set(targets))
+    if sorted(baseline) != expected_paths:
+        raise PermissionError("Patch target baseline does not match the approved target inventory")
+
+    with tempfile.TemporaryDirectory(prefix="aurix-patch-expected-") as temporary:
+        mirror = Path(temporary)
+        for relative in expected_paths:
+            source = safe_path(root, relative)
+            destination = mirror / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(source, flags)
+            digest = hashlib.sha256()
+            try:
+                before = os.fstat(fd)
+                if not stat.S_ISREG(before.st_mode):
+                    raise PermissionError(f"Patch target is not a regular file: {relative}")
+                with os.fdopen(fd, "rb") as source_stream:
+                    fd = -1
+                    with destination.open("wb") as destination_stream:
+                        while True:
+                            chunk = source_stream.read(65536)
+                            if not chunk:
+                                break
+                            digest.update(chunk)
+                            destination_stream.write(chunk)
+                        destination_stream.flush()
+                        os.fsync(destination_stream.fileno())
+                    after = os.fstat(source_stream.fileno())
+                stable_before = (
+                    before.st_dev, before.st_ino, before.st_size,
+                    before.st_mtime_ns, before.st_ctime_ns,
+                )
+                stable_after = (
+                    after.st_dev, after.st_ino, after.st_size,
+                    after.st_mtime_ns, after.st_ctime_ns,
+                )
+                if stable_before != stable_after or digest.hexdigest() != baseline[relative]:
+                    raise PermissionError(
+                        f"Patch target changed during application preflight: {relative}"
+                    )
+                destination.chmod(stat.S_IMODE(before.st_mode))
+            finally:
+                if fd >= 0:
+                    os.close(fd)
+
+        result = subprocess.run(
+            ["git", "apply", "--whitespace=error", "-"],
+            cwd=mirror,
+            input=patch,
+            text=True,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "Could not derive expected patch result in an isolated copy: "
+                f"{result.stderr.strip()[:300]}"
+            )
+        return [
+            {
+                "path": relative,
+                "sha256": _hash_regular_file_snapshot(
+                    mirror / relative, label="Expected patch target"
+                ),
+            }
+            for relative in expected_paths
+        ]
+
 def _review_track_evidence_valid(track: object, patch: str, patch_digest: str) -> bool:
     """Validate review-track digest and every finding against exact added patch lines."""
     if not isinstance(track, dict):
@@ -1478,18 +1558,22 @@ def _apply_proposal_locked(
     check = _git(root, ["apply", "--check", "--whitespace=error", "-"], patch=patch)
     if check.returncode != 0:
         raise ValueError(f"Patch preflight failed: {check.stderr.strip()[:500]}")
-    # Revalidate both repository identity and cleanliness at the last possible
-    # point before applying. The workspace lock serializes AURIX peers; these
-    # checks also detect many, but not all, external-process races.
+    # Revalidate repository identity and cleanliness at the last possible point
+    # before applying. Capture target hashes so edits racing the final Git apply
+    # cannot be silently bundled into the approved patch.
     if _git_head(root) != initial_head:
         raise PermissionError("Git HEAD changed during preflight; rerun audit and verification")
+    baseline_target_state = _target_state_snapshot(root, targets)
     final_preflight_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
     if final_preflight_status.returncode != 0 or final_preflight_status.stdout.strip():
         raise PermissionError("Tracked worktree changed during preflight; refusing to apply")
-    if require_audit_gate and _target_state_snapshot(root, targets) != target_state:
+    if require_audit_gate and baseline_target_state != target_state:
         raise PermissionError(
             "Patch target files changed during final preflight; refusing to apply"
         )
+    expected_target_state = _expected_target_state_after_patch(
+        root, patch, targets, baseline_target_state
+    )
     transaction = {
         "schema_version": 1,
         "proposal_id": proposal_id,
@@ -1543,6 +1627,12 @@ def _apply_proposal_locked(
         rollback_applied_patch("Applied diff did not match the approved target set")
         raise RuntimeError(
             "Applied diff did not match the approved target set; changes were rolled back"
+        )
+    if _target_state_snapshot(root, targets) != expected_target_state:
+        rollback_applied_patch("Applied target contents differ from the isolated expected patch result")
+        raise RuntimeError(
+            "Applied target contents differed from the approved patch result; "
+            "changes were rolled back where safe and manual intervention may be required"
         )
     if hashlib.sha256(_read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")).hexdigest() != patch_digest:
         rollback_applied_patch("Proposal changed during application")
