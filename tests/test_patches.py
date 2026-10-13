@@ -1828,3 +1828,39 @@ def test_audit_gate_rejects_failed_process_exit_codes(tmp_path, field, value):
     with pytest.raises(PermissionError, match="exact patch"):
         apply_proposal(root, proposal_id, confirm=True, require_audit_gate=True)
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+
+
+
+def test_inspection_cross_checks_applied_journal_with_verified_audit_event(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal["state"] = "reverted_and_audited"
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+
+    report = inspect_transactions(root)
+
+    assert report["status"] == "manual_intervention_required"
+    row = report["transactions"][0]
+    assert row["status"] == "manual_intervention_required"
+    assert "lifecycle audit event does not match" in row["reason"]
+
+
+def test_inspection_rejects_corrupted_audit_chain_for_terminal_journal(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    audit_path = root / ".aurix" / "audit.jsonl"
+    events = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    events[-1]["event"] = "proposal_reverted"
+    audit_path.write_text(
+        "".join(json.dumps(event, sort_keys=True, ensure_ascii=False) + "\\n" for event in events),
+        encoding="utf-8",
+    )
+
+    report = inspect_transactions(root)
+
+    assert report["status"] == "manual_intervention_required"
+    row = report["transactions"][0]
+    assert row["status"] == "manual_intervention_required"
+    assert "audit log hash chain is invalid" in row["reason"]
