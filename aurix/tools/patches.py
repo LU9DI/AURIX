@@ -669,7 +669,7 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
         proposal = metadata / "proposals" / f"{path.stem}.diff"
         proposal_digest = None
         if proposal.is_file() and not proposal.is_symlink():
-            proposal_digest = hashlib.sha256(proposal.read_bytes()).hexdigest()
+            proposal_digest = hashlib.sha256(_read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")).hexdigest()
         if not isinstance(record.get("patch_sha256"), str) or proposal_digest != record.get(
             "patch_sha256"
         ):
@@ -680,7 +680,7 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
             # Read-only reconciliation: infer the observed filesystem state without
             # rewriting the journal or claiming that recovery is complete.
             try:
-                patch = proposal.read_text(encoding="utf-8")
+                patch = _read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal").decode("utf-8")
                 targets = record.get("targets")
                 if (
                     not isinstance(targets, list)
@@ -751,7 +751,7 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
             reverse_check = _git(
                 root,
                 ["apply", "--reverse", "--check", "--whitespace=error", "-"],
-                patch=proposal.read_text(encoding="utf-8"),
+                patch=_read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal").decode("utf-8"),
             )
             expected_targets = sorted(set(record["targets"]))
             actual_targets = sorted(line for line in diff.stdout.splitlines() if line)
@@ -831,7 +831,7 @@ def plan_transaction_recovery(workspace: Path | str) -> dict[str, object]:
             state = record.get("state")
             plan["state"] = state
             proposal = _proposal_path(root, str(proposal_id))
-            patch = proposal.read_text(encoding="utf-8")
+            patch = _read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal").decode("utf-8")
             digest = hashlib.sha256(patch.encode("utf-8")).hexdigest()
             if digest != record.get("patch_sha256"):
                 plan["reason"] = "proposal digest does not match journal; do not auto-recover"
@@ -934,7 +934,7 @@ def recover_transaction(
         proposal = _proposal_path(root, proposal_id)
         # Recovery must validate and reverse the same proposal bytes; separate
         # text/byte reads could otherwise bind a different patch to the digest.
-        proposal_bytes = proposal.read_bytes()
+        proposal_bytes = _read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")
         patch = proposal_bytes.decode("utf-8")
         digest = hashlib.sha256(proposal_bytes).hexdigest()
         if digest != journal.get("patch_sha256"):
@@ -971,7 +971,7 @@ def recover_transaction(
             )
         # Recheck every relevant precondition immediately before the journal enters
         # the non-retryable state. The lock coordinates AURIX operations, not editors.
-        if hashlib.sha256(proposal.read_bytes()).hexdigest() != digest or _git_head(
+        if hashlib.sha256(_read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")).hexdigest() != digest or _git_head(
             root
         ) != journal.get("base_commit"):
             raise PermissionError("Repository or proposal changed during recovery preflight")
@@ -1101,7 +1101,7 @@ def finalize_interrupted_recovery(
             raise PermissionError("Only an interrupted recovery journal can be finalized")
         _validate_recovery_history(journal.get("recovery_history", []))
         proposal = _proposal_path(root, proposal_id)
-        digest = hashlib.sha256(proposal.read_bytes()).hexdigest()
+        digest = hashlib.sha256(_read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")).hexdigest()
         if digest != journal.get("patch_sha256"):
             raise PermissionError("Proposal digest changed; manual recovery is required")
         base_commit = journal.get("base_commit")
@@ -1117,7 +1117,7 @@ def finalize_interrupted_recovery(
             )
         # Re-read key evidence immediately before the journal-only transition.
         if (
-            hashlib.sha256(proposal.read_bytes()).hexdigest() != digest
+            hashlib.sha256(_read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")).hexdigest() != digest
             or _git_head(root) != base_commit
         ):
             raise PermissionError("Repository changed during recovery finalization preflight")
@@ -1295,7 +1295,7 @@ def _apply_proposal_locked(
     # Decode and hash the same byte snapshot. Separate read_text/read_bytes calls
     # could observe different proposal contents if an external process swaps the
     # file between reads, misbinding the applied patch to its recorded digest.
-    proposal_bytes = proposal.read_bytes()
+    proposal_bytes = _read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")
     patch = proposal_bytes.decode("utf-8")
     patch_digest = hashlib.sha256(proposal_bytes).hexdigest()
     if require_audit_gate:
@@ -1423,7 +1423,7 @@ def _apply_proposal_locked(
         raise PermissionError(
             "Git worktree has tracked changes; commit or stash them before applying"
         )
-    if hashlib.sha256(proposal.read_bytes()).hexdigest() != patch_digest:
+    if hashlib.sha256(_read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")).hexdigest() != patch_digest:
         raise PermissionError("Proposal changed during application preflight; refusing to apply")
     check = _git(root, ["apply", "--check", "--whitespace=error", "-"], patch=patch)
     if check.returncode != 0:
@@ -1494,7 +1494,7 @@ def _apply_proposal_locked(
         raise RuntimeError(
             "Applied diff did not match the approved target set; changes were rolled back"
         )
-    if hashlib.sha256(proposal.read_bytes()).hexdigest() != patch_digest:
+    if hashlib.sha256(_read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")).hexdigest() != patch_digest:
         rollback_applied_patch("Proposal changed during application")
         raise PermissionError("Proposal changed during application; changes were rolled back")
     try:
@@ -1532,7 +1532,7 @@ def _revert_proposal_locked(
     _assert_no_incomplete_transaction(root, proposal_id)
     initial_head = _git_head(root)
     proposal = _proposal_path(root, proposal_id)
-    patch = proposal.read_text(encoding="utf-8")
+    patch = _read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal").decode("utf-8")
     _validate_patch(root, patch)
     inside = _git(root, ["rev-parse", "--show-toplevel"])
     if inside.returncode != 0 or Path(inside.stdout.strip()).resolve() != root:
