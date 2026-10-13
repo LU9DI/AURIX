@@ -1864,3 +1864,29 @@ def test_inspection_rejects_corrupted_audit_chain_for_terminal_journal(tmp_path)
     row = report["transactions"][0]
     assert row["status"] == "manual_intervention_required"
     assert "audit log hash chain is invalid" in row["reason"]
+
+
+def test_inspection_rejects_valid_chain_with_wrong_patch_digest(tmp_path):
+    import hashlib
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    audit_path = root / ".aurix" / "audit.jsonl"
+    events = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    events[-1]["details"]["patch_sha256"] = "0" * 64
+    event = dict(events[-1])
+    event.pop("event_hash")
+    canonical = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    previous = event["previous_hash"]
+    events[-1]["event_hash"] = hashlib.sha256((previous + canonical).encode("utf-8")).hexdigest()
+    audit_path.write_text(
+        "".join(json.dumps(item, sort_keys=True, ensure_ascii=False) + "\\n" for item in events),
+        encoding="utf-8",
+    )
+
+    report = inspect_transactions(root)
+
+    assert report["status"] == "manual_intervention_required"
+    row = report["transactions"][0]
+    assert row["status"] == "manual_intervention_required"
+    assert "lifecycle audit event does not match" in row["reason"]
