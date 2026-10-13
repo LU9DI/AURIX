@@ -1,3 +1,5 @@
+import os
+import stat
 from pathlib import Path
 
 IGNORED_DIRS = {
@@ -146,17 +148,47 @@ def list_files(workspace: Path, relative_path: str = ".", *, limit: int = 200) -
     return result
 
 
+
+def _read_regular_file_no_follow(target: Path, *, max_bytes: int) -> bytes:
+    """Read a regular file without following a final-component symlink."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(target, flags)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise FileNotFoundError(str(target))
+        if info.st_size > max_bytes:
+            raise ValueError("File exceeds the read-size limit")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(descriptor, min(65536, max_bytes - total + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError("File exceeds the read-size limit")
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
 def read_text(workspace: Path, relative_path: str, *, max_chars: int = 20000) -> str:
     target = safe_path(workspace, relative_path)
     if _is_ignored_target(workspace, target) or _is_sensitive(target) or target.is_symlink():
         raise PermissionError("Reading ignored, sensitive files or symlinks is not allowed")
     if not target.is_file():
         raise FileNotFoundError(relative_path)
-    if target.stat().st_size > max_chars * 4:
-        raise ValueError("File exceeds the initial read-size limit")
-    return target.read_text(encoding="utf-8", errors="replace")[
-        : max(1, min(int(max_chars), 50000))
-    ]
+    char_limit = max(1, min(int(max_chars), 50000))
+    try:
+        raw = _read_regular_file_no_follow(target, max_bytes=char_limit * 4)
+    except ValueError as exc:
+        raise ValueError("File exceeds the initial read-size limit") from exc
+    return raw.decode("utf-8", errors="replace")[:char_limit]
 
 
 def read_text_lines(
@@ -179,9 +211,11 @@ def read_text_lines(
         raise PermissionError("Reading ignored, sensitive files or symlinks is not allowed")
     if not target.is_file():
         raise FileNotFoundError(relative_path)
-    if target.stat().st_size > 2_000_000:
-        raise ValueError("File exceeds the 2 MB line-inspection limit")
-    lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    try:
+        raw = _read_regular_file_no_follow(target, max_bytes=2_000_000)
+    except ValueError as exc:
+        raise ValueError("File exceeds the 2 MB line-inspection limit") from exc
+    lines = raw.decode("utf-8", errors="replace").splitlines()
     first = start_line - 1
     last = min(len(lines), end_line if end_line is not None else first + 250)
     if last - first > 500:
