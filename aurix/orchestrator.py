@@ -506,6 +506,7 @@ class Orchestrator:
                     "rea_investigate",
                     "rea_mcp_investigate",
                     "consult_other_ais",
+                    "read_public_url",
                 }
                 if self.allow_agent_verification:
                     allowed_tools.add("verify_proposal")
