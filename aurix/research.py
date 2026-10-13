@@ -77,6 +77,13 @@ def _resolve_public_addresses(url: str) -> list[str]:
     ):
         raise ValueError("Only absolute HTTP(S) URLs without credentials are allowed")
     host = parsed.hostname.rstrip(".").lower()
+    expected_port = 443 if parsed.scheme == "https" else 80
+    try:
+        port = parsed.port or expected_port
+    except ValueError as exc:
+        raise ValueError("Research target has an invalid port") from exc
+    if port != expected_port:
+        raise ValueError("Research targets may use only the scheme's default HTTP(S) port")
     if host in {"localhost", "localhost.localdomain"} or host.endswith(
         (".local", ".internal", ".localhost")
     ):
@@ -89,7 +96,7 @@ def _resolve_public_addresses(url: str) -> list[str]:
                 ipaddress.ip_address(item[4][0])
                 for item in socket.getaddrinfo(
                     host,
-                    parsed.port or (443 if parsed.scheme == "https" else 80),
+                    port,
                     type=socket.SOCK_STREAM,
                 )
             ]
