@@ -1574,6 +1574,49 @@ def test_apply_audit_failure_rolls_back_and_records_terminal_journal(tmp_path, m
     assert journal["recovery"] == "verified"
 
 
+
+def test_apply_detects_same_target_edit_racing_git_apply(tmp_path, monkeypatch):
+    """Do not mark a patch audited if a concurrent edit is bundled into its target."""
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    original_git = patches._git
+    injected = False
+
+    def race_target_then_apply(workspace, args, **kwargs):
+        nonlocal injected
+        if (
+            not injected
+            and args == ["apply", "--whitespace=error", "-"]
+            and kwargs.get("patch")
+        ):
+            injected = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# concurrent edit\n",
+                encoding="utf-8",
+            )
+        return original_git(workspace, args, **kwargs)
+
+    monkeypatch.setattr(patches, "_git", race_target_then_apply)
+    with pytest.raises(RuntimeError, match="final tracked status differs from expectation"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert injected is True
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'\n# concurrent edit\n"
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    inventory = inspect_transactions(root)
+    row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
+
+
 def test_apply_audit_failure_preserves_concurrent_unrelated_tracked_edit(tmp_path, monkeypatch):
     """Rollback may undo the exact proposal, but must never erase a concurrent edit."""
     from aurix.tools import patches
