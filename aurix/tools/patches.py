@@ -1650,6 +1650,26 @@ def _apply_proposal_locked(
     except Exception as exc:
         rollback_applied_patch("Could not persist the application audit event")
         raise RuntimeError("Audit logging failed; patch application was rolled back") from exc
+
+    # Reconcile once more after the audit write: arbitrary editors do not honor
+    # AURIX's operation lock and may change either a target or another tracked file
+    # while the audit event is being persisted. Leave the journal non-terminal if
+    # the repository no longer matches the exact expected patch result.
+    post_audit_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+    post_audit_changed = _git(root, ["diff", "--name-only", "--no-renames"])
+    post_audit_targets = sorted(
+        line for line in post_audit_changed.stdout.splitlines() if line
+    )
+    if (
+        post_audit_status.returncode != 0
+        or post_audit_changed.returncode != 0
+        or post_audit_targets != sorted(set(targets))
+        or _target_state_snapshot(root, targets) != expected_target_state
+    ):
+        raise RuntimeError(
+            "Repository changed after the application audit event; transaction remains "
+            "non-terminal. Recovery status: manual_intervention_required."
+        )
     transaction.update(state="applied_and_audited", updated_at=time.time(), recovery="verified")
     _write_transaction_journal(root, proposal_id, transaction)
     return {
