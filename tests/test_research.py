@@ -359,3 +359,56 @@ def test_research_adapter_skips_oversized_search_result_urls(monkeypatch):
         "https://search.example", fetch_pages=True
     )("test query")
     assert result == ""
+
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    ["text/htmlx", "text/plainfoo", "application/xhtml+xml-malicious", "text/markdownx"],
+)
+def test_research_adapter_does_not_extract_spoofed_content_types(
+    monkeypatch, content_type
+):
+    import json
+
+    from aurix import research
+
+    class DummyClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(research.httpx, "Client", lambda **kwargs: DummyClient())
+
+    def fake_get_limited(client, url, **kwargs):
+        if "/search?" in url:
+            return (
+                200,
+                {"content-type": "application/json"},
+                json.dumps(
+                    {
+                        "results": [
+                            {
+                                "url": "https://example.org/page",
+                                "title": "Example",
+                                "content": "search snippet",
+                            }
+                        ]
+                    }
+                ).encode(),
+            )
+        if url.endswith("/robots.txt"):
+            return 404, {}, b""
+        return 200, {"content-type": content_type}, b"<html><p>must not be extracted</p></html>"
+
+    monkeypatch.setattr(research, "_get_limited", fake_get_limited)
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+
+    result = research.SearxResearchAdapter(
+        "https://search.example", fetch_pages=True
+    )("test query")
+    assert "search snippet" in result
+    assert "must not be extracted" not in result
+    assert "PAGE EXTRACT:" not in result
