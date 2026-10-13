@@ -256,6 +256,8 @@ def investigate_binary_with_rea_mcp(
                 "clientInfo": {"name": "aurix", "version": "0.28.0"},
             },
         )
+        if initialized.get("protocolVersion") != "2025-03-26":
+            raise RuntimeError("REA MCP server selected an unsupported protocol version")
         client.notify("notifications/initialized")
         catalog = client.request("tools/list")
         tools = catalog.get("tools")
