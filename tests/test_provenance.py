@@ -147,3 +147,19 @@ def test_audit_append_lock_is_released_after_success(tmp_path):
     assert not (tmp_path / ".aurix" / "audit.lock").exists()
     append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
     assert len((tmp_path / ".aurix" / "audit.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+
+
+
+def test_manifest_verification_checks_the_supplied_byte_snapshot(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_bytes(b"original")
+    register_proposal(tmp_path, proposal, "abcdef123456")
+    snapshot = proposal.read_bytes()
+    proposal.write_bytes(b"tampered")
+
+    with pytest.raises(PermissionError, match="changed"):
+        verify_proposal_integrity(
+            proposal, "abcdef123456", proposal_bytes=snapshot + b"extra"
+        )
