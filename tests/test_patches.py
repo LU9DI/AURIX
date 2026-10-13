@@ -247,7 +247,7 @@ def test_apply_rolls_back_when_audit_logging_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(patches, "append_audit_event", fail_audit)
     with pytest.raises(RuntimeError, match="rolled back"):
         apply_proposal(root, proposal_id, confirm=True)
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'" + chr(10)
     status = subprocess.run(
         ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
         check=True,
