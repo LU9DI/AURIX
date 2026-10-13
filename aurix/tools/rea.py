@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -42,18 +43,39 @@ def _stage_safe_directory(source: Path) -> tuple[tempfile.TemporaryDirectory, Pa
                 if original.is_symlink() or _is_ignored_target(source, original) or _is_sensitive(original):
                     continue
                 try:
-                    metadata = original.stat(follow_symlinks=False)
+                    before = original.stat(follow_symlinks=False)
+                    if not original.is_file() or count >= MAX_STAGED_FILES:
+                        if count >= MAX_STAGED_FILES:
+                            raise ValueError("REA directory staging exceeded its file or size budget")
+                        continue
+                    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                    descriptor = os.open(original, flags)
                 except OSError:
                     continue
-                if not original.is_file():
-                    continue
-                if count >= MAX_STAGED_FILES or total_bytes + metadata.st_size > MAX_STAGED_BYTES:
-                    raise ValueError("REA directory staging exceeded its file or size budget")
                 staged_file = destination / relative_dir / name
                 staged_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(original, staged_file, follow_symlinks=False)
+                copied = 0
+                try:
+                    with os.fdopen(descriptor, "rb") as source_stream:
+                        opened = os.fstat(source_stream.fileno())
+                        if not stat.S_ISREG(opened.st_mode):
+                            continue
+                        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+                            continue
+                        with staged_file.open("wb") as destination_stream:
+                            while True:
+                                chunk = source_stream.read(64 * 1024)
+                                if not chunk:
+                                    break
+                                if total_bytes + copied + len(chunk) > MAX_STAGED_BYTES:
+                                    raise ValueError("REA directory staging exceeded its file or size budget")
+                                destination_stream.write(chunk)
+                                copied += len(chunk)
+                except BaseException:
+                    staged_file.unlink(missing_ok=True)
+                    raise
                 count += 1
-                total_bytes += metadata.st_size
+                total_bytes += copied
         return temporary, destination
     except BaseException:
         temporary.cleanup()
