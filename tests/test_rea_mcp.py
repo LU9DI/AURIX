@@ -627,3 +627,58 @@ def test_mcp_investigation_rejects_sensitive_or_ignored_targets(
 
     with pytest.raises(PermissionError, match="ignored or sensitive"):
         rea_mcp.investigate_binary_with_rea_mcp(tmp_path, relative_path)
+
+
+
+def test_mcp_rejects_unsupported_negotiated_protocol_version(monkeypatch, tmp_path):
+    target = tmp_path / "sample.bin"
+    target.write_bytes(b"fixture")
+
+    class Process:
+        stdin = None
+        pid = None
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+    class Client:
+        def __init__(self, process, timeout):
+            self.stderr = ""
+            self.calls = []
+            self.closed = False
+
+        def request(self, method, params=None):
+            self.calls.append(method)
+            if method == "initialize":
+                return {"protocolVersion": "unsupported-version"}
+            raise AssertionError("no MCP requests should follow failed negotiation")
+
+        def close(self):
+            self.closed = True
+
+        def notify(self, method, params=None):
+            raise AssertionError("initialized notification must not follow failed negotiation")
+
+    clients = []
+
+    def fake_client(process, timeout):
+        client = Client(process, timeout)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(rea_mcp, "_rea_executable", lambda: "/usr/bin/rea")
+    monkeypatch.setattr(rea_mcp.subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(rea_mcp, "_child_environment", lambda: {"PATH": "/usr/bin"})
+    monkeypatch.setattr(rea_mcp, "_StdioMCP", fake_client)
+
+    with pytest.raises(RuntimeError, match="unsupported protocol version"):
+        rea_mcp.investigate_binary_with_rea_mcp(tmp_path, "sample.bin")
+
+    assert clients and clients[0].calls == ["initialize"]
+    assert clients[0].closed is True
