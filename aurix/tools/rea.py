@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from aurix.tools.workspace import safe_path
+from aurix.tools.workspace import _is_ignored_target, _is_sensitive, safe_path
 
 MAX_STDOUT_CHARS = 32_000
 MAX_STDERR_CHARS = 4_000
@@ -166,6 +166,8 @@ def analyze_javascript_application(
 
     root = Path(workspace).expanduser().resolve()
     target = safe_path(root, relative_path)
+    if _is_ignored_target(root, target) or _is_sensitive(target):
+        raise PermissionError("REA cannot inspect ignored or sensitive workspace targets")
     if not target.exists():
         raise FileNotFoundError(f"REA target does not exist: {relative_path}")
     if target.is_symlink():
@@ -253,6 +255,8 @@ def investigate_with_rea(
         if Path(path).is_absolute() or ".." in Path(path).parts:
             raise PermissionError("REA target must remain inside the workspace")
         target = safe_path(root, path)
+        if _is_ignored_target(root, target) or _is_sensitive(target):
+            raise PermissionError("REA cannot inspect ignored or sensitive workspace targets")
         if not target.exists() or target.is_symlink() or not (target.is_file() or target.is_dir()):
             raise ValueError(
                 "REA target must be an existing regular file or directory, not a symlink"
