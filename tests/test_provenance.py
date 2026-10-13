@@ -311,3 +311,25 @@ def test_atomic_write_uses_unique_temp_and_preserves_stale_temp(tmp_path):
         "manifest.json.tmp",
     ]
 
+
+
+def test_register_proposal_does_not_overwrite_manifest_created_after_precheck(
+    tmp_path, monkeypatch
+):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_bytes(b"patch")
+    manifest_path = proposal.with_suffix(".json")
+    replacement = b'{"created_by_concurrent_registration":true}\\n'
+    original_atomic_create = provenance._atomic_create
+
+    def race_before_atomic_create(path, content):
+        path.write_bytes(replacement)
+        return original_atomic_create(path, content)
+
+    monkeypatch.setattr(provenance, "_atomic_create", race_before_atomic_create)
+    with pytest.raises(FileExistsError):
+        register_proposal(tmp_path, proposal, "abcdef123456")
+    assert manifest_path.read_bytes() == replacement
+    assert not (tmp_path / ".aurix" / "audit.jsonl").exists()
