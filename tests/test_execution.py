@@ -217,4 +217,4 @@ def test_pytest_paths_are_separated_from_cli_options(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     run_test_suite(tmp_path, confirm=True, test_paths=["tests/test_ok.py"])
-    assert seen["command"][-3:] == ["--", "tests/test_ok.py"][-3:]
+    assert seen["command"][-2:] == ["--", "tests/test_ok.py"]
