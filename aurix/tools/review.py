@@ -119,8 +119,14 @@ def review_proposal(workspace: Path | str, proposal_id: str) -> dict[str, Any]:
     if not root.is_dir():
         raise ValueError("Workspace must be a directory")
     proposal = _proposal_path(root, proposal_id)
-    integrity = verify_proposal_integrity(proposal, proposal_id)
-    patch = proposal.read_text(encoding="utf-8")
+    proposal_bytes = proposal.read_bytes()
+    integrity = verify_proposal_integrity(
+        proposal, proposal_id, proposal_bytes=proposal_bytes
+    )
+    try:
+        patch = proposal_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Proposal is not valid UTF-8") from exc
     targets = _validate_patch(root, patch)
     findings: list[dict[str, Any]] = []
     records = _added_line_records(patch, integrity["sha256"])
@@ -200,8 +206,15 @@ def review_correctness_proposal(workspace: Path | str, proposal_id: str) -> dict
     """
     root = Path(workspace).expanduser().resolve(strict=True)
     proposal = _proposal_path(root, proposal_id)
-    digest = __import__("hashlib").sha256(proposal.read_bytes()).hexdigest()
-    patch = proposal.read_text(encoding="utf-8")
+    proposal_bytes = proposal.read_bytes()
+    integrity = verify_proposal_integrity(
+        proposal, proposal_id, proposal_bytes=proposal_bytes
+    )
+    digest = integrity["sha256"]
+    try:
+        patch = proposal_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Proposal is not valid UTF-8") from exc
     _validate_patch(root, patch)
     findings: list[dict[str, Any]] = []
     records = _added_line_records(patch, digest)
