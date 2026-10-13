@@ -1971,3 +1971,41 @@ def test_inspection_flags_recovery_finalized_without_recovery_audit_event(tmp_pa
     assert row["status"] == "manual_intervention_required"
     assert "recovery audit event does not match" in row["reason"]
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+
+
+def test_inspection_flags_finalization_without_finalization_audit_event(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    patch = (root / ".aurix" / "proposals" / f"{proposal_id}.diff").read_text(encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(root), "apply", "--reverse", "-"],
+        input=patch,
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+    journal.update(state="recovery_interrupted", recovery="manual_intervention_required")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+
+    original_append = patches.append_audit_event
+
+    def fail_finalization_event(workspace, event, transaction_id, details):
+        if event == "transaction_recovery_finalized":
+            raise OSError("simulated finalization audit failure")
+        return original_append(workspace, event, transaction_id, details)
+
+    monkeypatch.setattr(patches, "append_audit_event", fail_finalization_event)
+    with pytest.raises(RuntimeError, match="recovery-finalization audit event"):
+        finalize_interrupted_recovery(root, proposal_id, confirm=True)
+
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert journal["state"] == "rolled_back"
+    report = inspect_transactions(root)
+    row = report["transactions"][0]
+    assert row["status"] == "manual_intervention_required"
+    assert "recovery audit event does not match" in row["reason"]
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
