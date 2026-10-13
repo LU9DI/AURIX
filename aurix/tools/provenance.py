@@ -78,7 +78,7 @@ def register_proposal(workspace: Path, proposal_path: Path, proposal_id: str) ->
     if path.exists() or path.is_symlink():
         raise FileExistsError("Proposal manifest already exists")
     manifest_bytes = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode()
-    _atomic_write(path, manifest_bytes)
+    _atomic_create(path, manifest_bytes)
     try:
         append_audit_event(workspace, "proposal_created", proposal_id, {"sha256": manifest["sha256"]})
     except Exception as exc:
@@ -312,6 +312,39 @@ def _append_audit_event_locked(
         if fd >= 0:
             os.close(fd)
     return stored
+
+
+
+def _atomic_create(path: Path, content: bytes) -> None:
+    """Durably create a file without replacing a concurrent creator's file.
+
+    The temporary file lives beside the destination; linking it into place is
+    atomic and fails with FileExistsError if another registration won the race.
+    """
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temp = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temp, path, follow_symlinks=False)
+        try:
+            directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory_fd = os.open(path.parent, directory_flags)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            pass
+    finally:
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
