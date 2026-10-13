@@ -65,6 +65,17 @@ def test_safe_path_rejects_symlink_components(tmp_path):
         safe_path(workspace, "alias.txt")
 
 
+
+def test_workspace_reads_require_regular_files(tmp_path):
+    from aurix.tools.workspace import read_text, read_text_lines
+
+    (tmp_path / "folder").mkdir()
+    with pytest.raises(FileNotFoundError):
+        read_text(tmp_path, "folder")
+    with pytest.raises(FileNotFoundError):
+        read_text_lines(tmp_path, "folder")
+
+
 def test_read_text_lines_returns_numbered_targeted_range(tmp_path):
     from aurix.tools.workspace import read_text_lines
 
