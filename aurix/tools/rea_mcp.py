@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from aurix.tools.rea import MAX_STDOUT_CHARS, _child_environment, _rea_executable
-from aurix.tools.workspace import safe_path
+from aurix.tools.workspace import _is_ignored_target, _is_sensitive, safe_path
 
 MAX_MCP_MESSAGE_CHARS = 1_000_000
 MAX_MCP_STDERR_CHARS = 4_000
@@ -224,6 +224,8 @@ def investigate_binary_with_rea_mcp(
         raise ValueError("Invalid REA provider ID")
     root = Path(workspace).expanduser().resolve(strict=True)
     target = safe_path(root, relative_path)
+    if _is_ignored_target(root, target) or _is_sensitive(target):
+        raise PermissionError("REA MCP cannot inspect ignored or sensitive workspace files")
     if not target.is_file() or target.is_symlink():
         raise ValueError("REA MCP target must be an existing regular file, not a symlink")
     if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int):
