@@ -205,7 +205,7 @@ def inspect_operation_lock(workspace: Path | str) -> dict[str, object]:
         )
         if (
             not isinstance(record, dict)
-            or not isinstance(record.get("pid"), int)
+            or type(record.get("pid")) is not int
             or record["pid"] <= 0
         ):
             raise ValueError("lock record has no valid positive PID")
@@ -437,6 +437,7 @@ def verify_recovery_histories(
             anchor_data = _load_strict_json(anchor.read_text(encoding="utf-8"))
             if (
                 not isinstance(anchor_data, dict)
+                or type(anchor_data.get("schema_version")) is not int
                 or anchor_data.get("schema_version") != 1
                 or anchor_data.get("algorithm") != "sha256"
                 or anchor_data.get("workspace") != str(root)
