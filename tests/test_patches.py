@@ -11,6 +11,7 @@ from aurix.tools.patches import (
     finalize_interrupted_recovery,
     inspect_transactions,
     plan_transaction_recovery,
+    recover_transaction,
     revert_proposal,
     verify_recovery_histories,
 )
@@ -1438,3 +1439,13 @@ def test_recovery_anchor_rejects_oversized_file(tmp_path):
     assert report["status"] == "invalid"
     assert report["anchor"]["status"] == "invalid"
     assert "size limit" in report["anchor"]["reason"]
+
+def test_recover_transaction_rejects_oversized_journal(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    journal_dir = root / ".aurix" / "transactions"
+    journal_dir.mkdir()
+    (journal_dir / f"{proposal_id}.json").write_bytes(b" " * 1_000_001)
+
+    with pytest.raises(PermissionError, match="journal is unreadable"):
+        recover_transaction(root, proposal_id, confirm=True)
+
