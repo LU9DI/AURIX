@@ -606,3 +606,24 @@ def test_mcp_request_ignores_notifications_and_mismatched_response_ids():
     client.process = Process()
 
     assert client.request("initialize") == {"right": True}
+
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [".env", ".ssh/id_rsa", ".git/config", ".aurix/transaction.json"],
+)
+def test_mcp_investigation_rejects_sensitive_or_ignored_targets(
+    monkeypatch, tmp_path, relative_path
+):
+    target = tmp_path / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"secret fixture")
+
+    def unexpected_launch(*args, **kwargs):
+        raise AssertionError("sensitive target must be rejected before process launch")
+
+    monkeypatch.setattr(rea_mcp.subprocess, "Popen", unexpected_launch)
+
+    with pytest.raises(PermissionError, match="ignored or sensitive"):
+        rea_mcp.investigate_binary_with_rea_mcp(tmp_path, relative_path)
