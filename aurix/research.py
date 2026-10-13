@@ -417,6 +417,7 @@ def fetch_authorized_public_url(
             max_bytes=2_000_000,
             headers={"Accept": "text/html,text/plain,text/markdown,application/xhtml+xml"},
             timeout=timeout_seconds,
+            raise_for_status=False,
         )
     content_type = headers.get("content-type", "").lower()
     if status != 200:
