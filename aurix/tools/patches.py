@@ -611,7 +611,7 @@ def _assert_no_incomplete_transaction(workspace: Path, proposal_id: str) -> None
         )
 
 
-def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, str], str | None]:
+def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, tuple[str, str | None]], str | None]:
     """Verify the complete local audit chain and return each proposal's latest lifecycle event."""
     log = root / ".aurix" / "audit.jsonl"
     try:
@@ -624,7 +624,7 @@ def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, str], str | 
     if len(lines) > 100_000:
         return {}, "audit log contains too many events"
     previous = "0" * 64
-    latest: dict[str, str] = {}
+    latest: dict[str, tuple[str, str | None]] = {}
     try:
         for line in lines:
             item = _load_strict_json(line.decode("utf-8"))
@@ -642,7 +642,9 @@ def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, str], str | 
             proposal_id = item.get("proposal_id")
             event = item.get("event")
             if isinstance(proposal_id, str) and event in {"proposal_applied", "proposal_reverted"}:
-                latest[proposal_id] = event
+                details = item.get("details")
+                patch_digest = details.get("patch_sha256") if isinstance(details, dict) else None
+                latest[proposal_id] = (event, patch_digest if isinstance(patch_digest, str) else None)
             previous = digest
     except (UnicodeError, ValueError, TypeError, json.JSONDecodeError):
         return {}, "audit log hash chain is invalid"
@@ -800,8 +802,16 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
             row.update(status="manual_intervention_required", reason="target inventory is invalid")
         elif state in {"applied_and_audited", "reverted_and_audited"} and (
             audit_error is not None
-            or lifecycle_events.get(path.stem)
+            or lifecycle_events.get(path.stem, (None, None))[0]
             != ("proposal_applied" if state == "applied_and_audited" else "proposal_reverted")
+            or (
+                lifecycle_events.get(path.stem, (None, None))[1] is not None
+                and lifecycle_events[path.stem][1] != record.get("patch_sha256")
+            )
+            or (
+                state == "applied_and_audited"
+                and lifecycle_events.get(path.stem, (None, None))[1] is None
+            )
         ):
             row.update(
                 status="manual_intervention_required",
@@ -1834,6 +1844,7 @@ def _revert_proposal_locked(
                 proposal_id,
                 {
                     "files": "tracked patch targets",
+                    "patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
                     "recovery_status": "not_needed",
                 },
             )
@@ -1885,6 +1896,7 @@ def _revert_proposal_locked(
             proposal_id,
             {
                 "files": "tracked patch targets",
+                "patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
                 "recovery_status": "verified",
             },
         )
