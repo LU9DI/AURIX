@@ -477,14 +477,17 @@ def test_rea_real_stdout_and_stderr_flood_is_bounded_and_reaped(monkeypatch, tmp
 
 
 def test_rea_parent_exit_does_not_leave_pipe_holding_descendant(monkeypatch, tmp_path):
+    import os
     import subprocess
     import sys
+    import time
 
-    if __import__("os").name != "posix":
+    if os.name != "posix":
         pytest.skip("process-group termination is POSIX-specific")
 
     real_popen = subprocess.Popen
     launched = []
+    marker = tmp_path / "descendant-terminated"
 
     def capture_popen(*args, **kwargs):
         process = real_popen(*args, **kwargs)
@@ -492,7 +495,13 @@ def test_rea_parent_exit_does_not_leave_pipe_holding_descendant(monkeypatch, tmp
         return process
 
     monkeypatch.setattr(rea.subprocess, "Popen", capture_popen)
-    child = "import time; time.sleep(30)"
+    child = (
+        "import signal,time; from pathlib import Path; "
+        f"marker=Path({str(marker)!r}); "
+        "signal.signal(signal.SIGTERM, lambda *a: (marker.write_text('terminated'), exit(0))); "
+        "while_loop=True\\n"
+        "while while_loop: time.sleep(0.05)"
+    )
     parent = (
         "import subprocess,sys; "
         "subprocess.Popen([sys.executable, '-c', " + repr(child) + "])"
@@ -506,11 +515,11 @@ def test_rea_parent_exit_does_not_leave_pipe_holding_descendant(monkeypatch, tmp
 
     assert result["timed_out"] is True
     assert launched and launched[0].poll() is not None
-    # The direct parent exits immediately; the inherited pipes remain open
-    # until the runner times out and terminates the entire process group.
-    with pytest.raises(subprocess.TimeoutExpired):
-        # Verify the runner itself has no live direct child left to wait for.
-        launched[0].wait(timeout=0.01)
+    deadline = time.monotonic() + 2
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert marker.exists(), "runner did not terminate the descendant holding the pipes"
+
 
 
 def test_rea_real_silent_process_times_out_and_is_reaped(monkeypatch, tmp_path):
