@@ -856,9 +856,10 @@ def recover_transaction(
 ) -> dict[str, str]:
     """Perform a narrowly-scoped, explicitly confirmed exact-patch rollback.
 
-    Recovery is permitted only for an interrupted ``patch_applied`` journal when
-    HEAD, the index, the tracked diff, target inventory, proposal digest, and exact
-    inverse check all match immediately before mutation. Ambiguous states fail closed.
+    Recovery is permitted for an interrupted ``patch_applied`` journal, or an
+    ``applying`` journal whose exact patch is demonstrably present, when HEAD, the
+    index, tracked diff, target inventory, proposal digest, and inverse check all
+    match immediately before mutation. Ambiguous states fail closed.
     """
     if not confirm:
         raise PermissionError("Explicit confirmation is required to recover a transaction")
@@ -875,9 +876,10 @@ def recover_transaction(
             raise PermissionError(
                 "Transaction journal identity is invalid; manual recovery is required"
             )
-        if journal.get("state") != "patch_applied":
+        if journal.get("state") not in {"applying", "patch_applied"}:
             raise PermissionError(
-                "Only an interrupted patch_applied transaction can be recovered automatically"
+                "Only an interrupted patch_applied transaction (or an applying transaction "
+                "with the exact patch present) can be recovered automatically"
             )
         _validate_recovery_history(journal.get("recovery_history", []))
         proposal = _proposal_path(root, proposal_id)
