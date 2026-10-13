@@ -1449,3 +1449,50 @@ def test_recover_transaction_rejects_oversized_journal(tmp_path):
     with pytest.raises(PermissionError, match="journal is unreadable"):
         recover_transaction(root, proposal_id, confirm=True)
 
+
+
+
+def test_target_snapshot_hashes_regular_file_without_loading_entire_contents(tmp_path):
+    from aurix.tools.patches import _hash_regular_file_snapshot
+
+    target = tmp_path / "target.py"
+    payload = b"value = 42\n" * 1000
+    target.write_bytes(payload)
+    assert _hash_regular_file_snapshot(target, label="Patch target") == hashlib.sha256(payload).hexdigest()
+
+
+def test_target_snapshot_rejects_symlink(tmp_path):
+    from aurix.tools.patches import _hash_regular_file_snapshot
+
+    target = tmp_path / "target.py"
+    outside = tmp_path / "outside.py"
+    outside.write_text("secret\n", encoding="utf-8")
+    try:
+        target.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are unavailable on this platform")
+    with pytest.raises(PermissionError, match="must not be a symlink"):
+        _hash_regular_file_snapshot(target, label="Patch target")
+
+
+def test_target_snapshot_detects_concurrent_file_change(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    target = tmp_path / "target.py"
+    target.write_bytes(b"x" * 100_000)
+    original_read = patches.os.read
+    changed = False
+
+    def read_then_mutate(fd, size):
+        nonlocal changed
+        chunk = original_read(fd, size)
+        if chunk and not changed:
+            changed = True
+            with target.open("ab") as stream:
+                stream.write(b"concurrent change")
+                stream.flush()
+        return chunk
+
+    monkeypatch.setattr(patches.os, "read", read_then_mutate)
+    with pytest.raises(PermissionError, match="changed while"):
+        patches._hash_regular_file_snapshot(target, label="Patch target")
