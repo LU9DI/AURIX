@@ -202,3 +202,28 @@ def test_manifest_over_size_limit_is_rejected(tmp_path):
 
     with pytest.raises(PermissionError, match="Unsafe proposal manifest"):
         verify_proposal_integrity(proposal, "abcdef123456")
+
+
+
+def test_audit_log_symlink_is_rejected(tmp_path):
+    metadata = tmp_path / ".aurix"
+    metadata.mkdir()
+    target = tmp_path / "audit-target.jsonl"
+    target.write_text("", encoding="utf-8")
+    log = metadata / "audit.jsonl"
+    try:
+        log.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable on this platform")
+
+    with pytest.raises(PermissionError, match="Audit log must not be a symlink"):
+        append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+
+
+def test_audit_log_directory_is_rejected(tmp_path):
+    metadata = tmp_path / ".aurix"
+    metadata.mkdir()
+    (metadata / "audit.jsonl").mkdir()
+
+    with pytest.raises(ValueError, match="bounded regular file"):
+        append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
