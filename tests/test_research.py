@@ -294,7 +294,7 @@ def test_robots_policy_accepts_plain_text_rules(monkeypatch):
         lambda request: httpx.Response(
             200,
             headers={"content-type": "text/plain; charset=utf-8"},
-            content=b"User-agent: *\\nDisallow: /private\\n",
+            content=b"User-agent: *\nDisallow: /private\n",
         )
     )
     with httpx.Client(transport=transport) as client:
