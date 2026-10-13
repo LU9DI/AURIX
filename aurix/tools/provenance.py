@@ -12,6 +12,7 @@ import json
 import os
 import re
 import stat
+import tempfile
 import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -314,17 +315,31 @@ def _append_audit_event_locked(
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
-    temp = path.with_name(path.name + ".tmp")
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    """Atomically replace a file using a unique same-directory temporary file."""
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temp = Path(temp_name)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-    except Exception:
+        os.replace(temp, path)
+        # Directory fsync improves rename durability on POSIX. Some filesystems
+        # do not support it, so a failure here must not misreport the already
+        # completed replacement as though it had not happened.
         try:
-            temp.unlink()
+            directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory_fd = os.open(path.parent, directory_flags)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         except OSError:
             pass
-        raise
-    os.replace(temp, path)
+    finally:
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
