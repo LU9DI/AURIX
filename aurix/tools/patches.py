@@ -293,6 +293,37 @@ def _external_anchor_path(workspace: Path | str, anchor_path: Path | str) -> tup
     return root, anchor
 
 
+def _read_regular_file(path: Path, *, max_bytes: int, label: str) -> bytes:
+    """Read one bounded regular-file snapshot without following a final symlink."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno in {40, 62}:  # ELOOP on common POSIX platforms
+            raise PermissionError(f"{label} must not be a symlink") from exc
+        raise
+    try:
+        info = os.fstat(fd)
+        if not __import__("stat").S_ISREG(info.st_mode):
+            raise PermissionError(f"{label} is not a regular file")
+        if info.st_size > max_bytes:
+            raise ValueError(f"{label} exceeds size limit")
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining:
+            chunk = os.read(fd, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > max_bytes:
+            raise ValueError(f"{label} exceeds size limit")
+        return payload
+    finally:
+        os.close(fd)
+
+
 def _journal_snapshot(root: Path) -> dict[str, str]:
     transactions = root / ".aurix" / "transactions"
     if (root / ".aurix").is_symlink() or transactions.is_symlink():
@@ -307,7 +338,7 @@ def _journal_snapshot(root: Path) -> dict[str, str]:
             continue
         if path.is_symlink() or not path.is_file():
             raise PermissionError(f"Transaction journal is not a regular file: {path.name}")
-        snapshot[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        snapshot[path.name] = hashlib.sha256(\n            _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal")\n        ).hexdigest()
     return snapshot
 
 
@@ -398,7 +429,7 @@ def verify_recovery_histories(
             try:
                 if path.is_symlink() or not path.is_file():
                     raise PermissionError("journal is not a regular file")
-                record = _load_strict_json(path.read_text(encoding="utf-8"))
+                record = _load_strict_json(\n                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")\n                )
                 if not isinstance(record, dict) or record.get("proposal_id") != path.stem:
                     raise ValueError("journal identity mismatch")
                 history = record.get("recovery_history", [])
@@ -552,7 +583,7 @@ def _assert_no_incomplete_transaction(workspace: Path, proposal_id: str) -> None
     if not path.exists():
         return
     try:
-        record = _load_strict_json(path.read_text(encoding="utf-8"))
+        record = _load_strict_json(\n                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")\n                )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise PermissionError(
             "Transaction journal is unreadable; manual recovery is required"
@@ -611,7 +642,7 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
             rows.append(row)
             continue
         try:
-            record = _load_strict_json(path.read_text(encoding="utf-8"))
+            record = _load_strict_json(\n                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")\n                )
         except (OSError, UnicodeError, json.JSONDecodeError):
             row.update(status="manual_intervention_required", reason="journal is unreadable")
             rows.append(row)
