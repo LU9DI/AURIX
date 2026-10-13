@@ -1619,6 +1619,46 @@ def test_apply_detects_same_target_edit_racing_git_apply(tmp_path, monkeypatch):
     assert row["status"] == "manual_intervention_required"
 
 
+
+def test_apply_detects_target_edit_during_audit_persistence(tmp_path, monkeypatch):
+    """Do not mark a transaction terminal if a target changes during audit writing."""
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    original_audit = patches.append_audit_event
+    injected = False
+
+    def audit_then_race(workspace, event_type, current_id, details):
+        nonlocal injected
+        result = original_audit(workspace, event_type, current_id, details)
+        if event_type == "proposal_applied" and not injected:
+            injected = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# concurrent edit\n",
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", audit_then_race)
+    with pytest.raises(RuntimeError, match="after the application audit event"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert injected is True
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'new'\n# concurrent edit\n"
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    inventory = inspect_transactions(root)
+    row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
+
+
 def test_apply_audit_failure_preserves_concurrent_unrelated_tracked_edit(tmp_path, monkeypatch):
     """Rollback may undo the exact proposal, but must never erase a concurrent edit."""
     from aurix.tools import patches
