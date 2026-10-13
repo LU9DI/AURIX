@@ -265,10 +265,10 @@ def search_text(
         if _is_ignored(relative) or _is_sensitive(path) or path.suffix.lower() not in TEXT_SUFFIXES:
             continue
         try:
-            if path.stat().st_size > max_file_bytes:
-                continue
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
+            lines = _read_regular_file_no_follow(path, max_bytes=max_file_bytes).decode(
+                "utf-8", errors="replace"
+            ).splitlines()
+        except (OSError, ValueError):
             continue
         for line_no, line in enumerate(lines, start=1):
             if needle in line.casefold():
@@ -305,10 +305,11 @@ def build_workspace_context(workspace: Path, *, max_chars: int = 24000, max_file
         if remaining <= 0:
             break
         try:
-            if path.stat().st_size > min(remaining * 4, 200_000):
-                continue
-            content = path.read_text(encoding="utf-8", errors="replace")[: min(remaining, 6000)]
-        except (OSError, UnicodeError):
+            max_bytes = min(remaining * 4, 200_000)
+            content = _read_regular_file_no_follow(path, max_bytes=max_bytes).decode(
+                "utf-8", errors="replace"
+            )[: min(remaining, 6000)]
+        except (OSError, UnicodeError, ValueError):
             continue
         rel = path.relative_to(root).as_posix()
         section = f"\n--- BEGIN UNTRUSTED FILE: {rel} ---\n{content}\n--- END FILE: {rel} ---\n"
