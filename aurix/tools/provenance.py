@@ -59,6 +59,9 @@ def verify_proposal_integrity(
     """
     path = _metadata_path(proposal_path)
     snapshot = proposal_path.read_bytes() if proposal_bytes is None else proposal_bytes
+    # A dangling symlink also counts as an unsafe manifest, not as absence.
+    if path.is_symlink():
+        raise PermissionError("Unsafe proposal manifest")
     if not path.exists():
         return {
             "integrity": "legacy_unsealed",
