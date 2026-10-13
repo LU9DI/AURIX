@@ -119,8 +119,8 @@ class Orchestrator:
         """Expose opt-in tools to the model only when the operator enabled them."""
         if self.allow_agent_verification:
             return SYSTEM_PROMPT.replace(
-                "You may request these tools: inspect_project, list_files, read_file (optional start_line/end_line), search_text, git_status, git_diff, propose_patch, review_proposal, rea_analyze_app, rea_investigate, rea_mcp_investigate, consult_other_ais.",
-                "You may request these tools: inspect_project, list_files, read_file (optional start_line/end_line), search_text, git_status, git_diff, propose_patch, review_proposal (proposal_id), rea_analyze_app, rea_investigate, rea_mcp_investigate, consult_other_ais, verify_proposal (proposal_id, optional suite=pytest|ruff, optional timeout_seconds).",
+                "You may request these tools: inspect_project, list_files, read_file (optional start_line/end_line), search_text, git_status, git_diff, propose_patch, review_proposal, rea_analyze_app, rea_investigate, rea_mcp_investigate, consult_other_ais, read_public_url (url; requires an explicitly configured AURIX_WEB_ALLOWED_DOMAINS allowlist).",
+                "You may request these tools: inspect_project, list_files, read_file (optional start_line/end_line), search_text, git_status, git_diff, propose_patch, review_proposal (proposal_id), rea_analyze_app, rea_investigate, rea_mcp_investigate, consult_other_ais, read_public_url (url; requires an explicitly configured AURIX_WEB_ALLOWED_DOMAINS allowlist), verify_proposal (proposal_id, optional suite=pytest|ruff, optional timeout_seconds).",
             )
         return SYSTEM_PROMPT.replace(
             "Agent-requested verify_proposal is disabled unless the operator explicitly enables it. Verification uses the operator-selected isolation mode; trusted mode is not an OS sandbox.",
