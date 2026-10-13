@@ -618,4 +618,4 @@ def test_verification_enabled_prompt_retains_direct_url_tool(monkeypatch, tmp_pa
     prompt = agent._system_prompt()
     assert "read_public_url (url;" in prompt
     assert "verify_proposal (proposal_id" in prompt
-    assert '"read_public_url"' in prompt
+    assert "|read_public_url|" in prompt
