@@ -1026,6 +1026,7 @@ def test_recovery_replay_refuses_already_rolled_back_transaction(tmp_path):
 
 
 def test_recovery_accepts_applying_journal_when_exact_patch_is_present(tmp_path):
+    # Compare against a real newline without ambiguous backslash escaping.
     """Recover a crash after git apply but before persisting patch_applied."""
     from aurix.tools.patches import recover_transaction
 
