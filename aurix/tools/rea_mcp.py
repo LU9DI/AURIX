@@ -20,7 +20,6 @@ MAX_MCP_STDERR_CHARS = 4_000
 MAX_MCP_TIMEOUT_SECONDS = 240
 _MAX_QUEUED_MCP_MESSAGES = 16
 _OVERSIZED_MESSAGE = "__AURIX_REA_MCP_OVERSIZED_MESSAGE__"
-READ_ONLY_MCP_TOOLS = {"binary_session", "binary_overview"}
 
 
 def _signal_process_tree(process: subprocess.Popen[str], *, force: bool = False) -> None:
@@ -168,7 +167,11 @@ class _StdioMCP:
             except json.JSONDecodeError as exc:
                 # MCP stdout is protocol-only; diagnostics belong on stderr.
                 raise ValueError("REA MCP emitted malformed JSON-RPC on stdout") from exc
-            if not isinstance(response, dict) or response.get("id") != request_id:
+            if not isinstance(response, dict):
+                continue
+            response_id = response.get("id")
+            # JSON booleans compare equal to integers in Python; JSON-RPC IDs here are integers.
+            if type(response_id) is not int or response_id != request_id:
                 continue
             if response.get("jsonrpc") != "2.0":
                 raise ValueError("REA MCP emitted an invalid JSON-RPC version")
