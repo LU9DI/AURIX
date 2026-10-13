@@ -338,7 +338,7 @@ def _robots_allows(client: httpx.Client, url: str, timeout_seconds: float) -> bo
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
     _assert_public_http_url(robots_url)
     try:
-        robots_status, _, robots_bytes = _get_limited(
+        robots_status, robots_headers, robots_bytes = _get_limited(
             client,
             robots_url,
             max_bytes=200_000,
@@ -350,6 +350,9 @@ def _robots_allows(client: httpx.Client, url: str, timeout_seconds: float) -> bo
     if robots_status == 404:
         return True
     if robots_status != 200:
+        return False
+    # Treat HTML challenge pages and unexpected proxy responses as policy uncertainty.
+    if robots_headers.get("content-type", "").split(";", 1)[0].strip().lower() != "text/plain":
         return False
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(robots_url)
