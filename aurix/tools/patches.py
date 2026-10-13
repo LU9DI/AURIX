@@ -942,6 +942,13 @@ def plan_transaction_recovery(workspace: Path | str) -> dict[str, object]:
             "preconditions": [],
             "reason": row.get("reason", "transaction requires review"),
         }
+        inspection_reason = str(row.get("reason", ""))
+        if "audit" in inspection_reason.casefold():
+            plan["reason"] = (
+                "audit evidence is inconsistent; automatic recovery planning is blocked"
+            )
+            plans.append(plan)
+            continue
         try:
             record = _load_strict_json(
                 _read_regular_file(
