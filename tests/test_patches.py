@@ -313,6 +313,36 @@ def test_patch_operation_refuses_existing_workspace_lock(tmp_path):
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
 
 
+def test_inspect_operation_lock_rejects_boolean_pid(tmp_path):
+    from aurix.tools.patches import inspect_operation_lock
+
+    root, _ = make_repo(tmp_path)
+    lock = root / ".aurix" / "operation.lock"
+    lock.write_text('{"pid": true, "created_at": 1}', encoding="utf-8")
+    report = inspect_operation_lock(root)
+    assert report["status"] == "invalid"
+    assert "valid positive PID" in report["reason"]
+
+
+def test_recovery_anchor_rejects_boolean_schema_version(tmp_path):
+    from aurix.tools.patches import verify_recovery_histories
+
+    root, _ = make_repo(tmp_path)
+    outside = tmp_path / "recovery.json"
+    outside.write_text(
+        json.dumps({
+            "schema_version": True,
+            "algorithm": "sha256",
+            "workspace": str(root.resolve()),
+            "journals": {},
+        }),
+        encoding="utf-8",
+    )
+    report = verify_recovery_histories(root, outside)
+    assert report["status"] == "invalid"
+    assert report["anchor"]["status"] == "invalid"
+
+
 def test_apply_detects_head_change_during_preflight(tmp_path, monkeypatch):
     from aurix.tools import patches
 
