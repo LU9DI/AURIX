@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+import stat
 import time
 from collections.abc import Sequence
 from contextlib import contextmanager
@@ -304,7 +305,7 @@ def _read_regular_file(path: Path, *, max_bytes: int, label: str) -> bytes:
         raise
     try:
         info = os.fstat(fd)
-        if not __import__("stat").S_ISREG(info.st_mode):
+        if not stat.S_ISREG(info.st_mode):
             raise PermissionError(f"{label} is not a regular file")
         if info.st_size > max_bytes:
             raise ValueError(f"{label} exceeds size limit")
@@ -338,7 +339,9 @@ def _journal_snapshot(root: Path) -> dict[str, str]:
             continue
         if path.is_symlink() or not path.is_file():
             raise PermissionError(f"Transaction journal is not a regular file: {path.name}")
-        snapshot[path.name] = hashlib.sha256(\n            _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal")\n        ).hexdigest()
+        snapshot[path.name] = hashlib.sha256(
+            _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal")
+        ).hexdigest()
     return snapshot
 
 
@@ -429,7 +432,9 @@ def verify_recovery_histories(
             try:
                 if path.is_symlink() or not path.is_file():
                     raise PermissionError("journal is not a regular file")
-                record = _load_strict_json(\n                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")\n                )
+                record = _load_strict_json(
+                    _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")
+                )
                 if not isinstance(record, dict) or record.get("proposal_id") != path.stem:
                     raise ValueError("journal identity mismatch")
                 history = record.get("recovery_history", [])
