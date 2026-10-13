@@ -55,6 +55,42 @@ def test_manifest_rejects_boolean_schema_version(tmp_path):
         verify_proposal_integrity(proposal, "abcdef123456")
 
 
+def test_manifest_rejects_boolean_size_bytes(tmp_path):
+    import hashlib
+
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_text("x", encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "proposal_id": "abcdef123456",
+        "sha256": hashlib.sha256(b"x").hexdigest(),
+        "size_bytes": True,
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    proposal.with_suffix(".json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(PermissionError, match="changed"):
+        verify_proposal_integrity(proposal, "abcdef123456")
+
+
+def test_manifest_rejects_malformed_sha256(tmp_path):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_text("x", encoding="utf-8")
+    manifest = {
+        "schema_version": 1,
+        "proposal_id": "abcdef123456",
+        "sha256": "not-a-digest",
+        "size_bytes": 1,
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    proposal.with_suffix(".json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(PermissionError, match="changed"):
+        verify_proposal_integrity(proposal, "abcdef123456")
+
+
 def test_manifest_rejects_duplicate_json_keys(tmp_path):
     proposal_dir = tmp_path / ".aurix" / "proposals"
     proposal_dir.mkdir(parents=True)
