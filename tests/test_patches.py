@@ -868,6 +868,9 @@ def test_transaction_inspection_rejects_tampered_recovery_history(tmp_path):
     row = report["transactions"][0]
     assert row["status"] == "manual_intervention_required"
     assert row["reason"] == "recovery history is invalid: PermissionError"
+    plan = plan_transaction_recovery(root)
+    assert plan["status"] == "manual_intervention_required"
+    assert plan["plans"][0]["action"] == "manual_review"
     assert journal_path.read_bytes() == before
 
 
