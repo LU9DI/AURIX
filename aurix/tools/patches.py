@@ -470,7 +470,7 @@ def verify_recovery_histories(
                 raise PermissionError("Recovery anchor is missing or is not a regular file")
             if anchor.stat().st_size > 5_000_000:
                 raise ValueError("Recovery anchor exceeds size limit")
-            anchor_data = _load_strict_json(anchor.read_text(encoding="utf-8"))
+            anchor_data = _load_strict_json(_read_regular_file(anchor, max_bytes=5_000_000, label="Recovery anchor").decode("utf-8"))
             if (
                 not isinstance(anchor_data, dict)
                 or type(anchor_data.get("schema_version")) is not int
@@ -1309,7 +1309,7 @@ def _apply_proposal_locked(
         ):
             raise PermissionError("A passing audit record is required before application")
         try:
-            audit = _load_strict_json(audit_path.read_text(encoding="utf-8"))
+            audit = _load_strict_json(_read_regular_file(audit_path, max_bytes=1_000_000, label="Audit evidence").decode("utf-8"))
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError("Audit evidence is unreadable; refusing application") from exc
         verification = audit.get("verification", {})
