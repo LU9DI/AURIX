@@ -62,7 +62,7 @@ def verify_proposal_integrity(
     snapshot = proposal_path.read_bytes() if proposal_bytes is None else proposal_bytes
     # lstat distinguishes a genuinely absent manifest from a dangling symlink.
     try:
-        path.lstat()
+        entry_stat = path.lstat()
     except FileNotFoundError:
         return {
             "integrity": "legacy_unsealed",
@@ -70,6 +70,9 @@ def verify_proposal_integrity(
         }
     except OSError as exc:
         raise ValueError("Proposal manifest is unreadable") from exc
+
+    if stat.S_ISLNK(entry_stat.st_mode) or not stat.S_ISREG(entry_stat.st_mode) or entry_stat.st_size > 16_384:
+        raise PermissionError("Unsafe proposal manifest")
 
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -86,7 +89,11 @@ def verify_proposal_integrity(
         )
     except PermissionError:
         raise
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except OSError as exc:
+        if getattr(exc, "errno", None) in {40, 62}:  # ELOOP on common POSIX platforms
+            raise PermissionError("Unsafe proposal manifest") from exc
+        raise ValueError("Proposal manifest is unreadable") from exc
+    except (UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("Proposal manifest is unreadable") from exc
     actual = hashlib.sha256(snapshot).hexdigest()
     if (
