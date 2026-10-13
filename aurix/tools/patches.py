@@ -665,6 +665,15 @@ def inspect_transactions(workspace: Path | str) -> dict[str, object]:
             row.update(status="manual_intervention_required", reason="journal identity is invalid")
             rows.append(row)
             continue
+        try:
+            _validate_recovery_history(record.get("recovery_history", []))
+        except (PermissionError, ValueError, TypeError) as exc:
+            row.update(
+                status="manual_intervention_required",
+                reason=f"recovery history is invalid: {type(exc).__name__}",
+            )
+            rows.append(row)
+            continue
         state = record.get("state")
         row.update(
             state=state,
