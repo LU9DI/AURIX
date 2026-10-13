@@ -705,6 +705,38 @@ def test_finalize_interrupted_recovery_only_updates_journal_after_verified_basel
     assert final["recovery_history"][-1]["result"] == "baseline_verified"
 
 
+def test_finalize_interrupted_recovery_reports_audit_failure_after_terminal_state(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="recovery_interrupted", recovery="manual_intervention_required")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(root), "apply", "--reverse", "--whitespace=error", "-"],
+        input=(root / ".aurix" / "proposals" / f"{proposal_id}.diff").read_text(encoding="utf-8"),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    def fail_audit(*args, **kwargs):
+        raise OSError("simulated finalization audit failure")
+
+    monkeypatch.setattr(patches, "append_audit_event", fail_audit)
+    with pytest.raises(RuntimeError, match="finalization audit event could not be persisted"):
+        patches.finalize_interrupted_recovery(root, proposal_id, confirm=True)
+
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "rolled_back"
+    assert final["recovery"] == "verified"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+
+
 def test_finalize_interrupted_recovery_refuses_dirty_worktree(tmp_path):
     root, proposal_id = make_repo(tmp_path)
     apply_proposal(root, proposal_id, confirm=True)
