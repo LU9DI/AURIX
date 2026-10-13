@@ -13,6 +13,16 @@ def test_clean_html_removes_scripts_styles_and_tags():
     assert "secret()" not in result
 
 
+def test_clean_html_malformed_closing_tags_do_not_expose_blocked_content():
+    result = clean_html(
+        "<main><h1>Visible</h1><script>secret payload"
+        "</noscript></noscript></script><p>Still visible</p></main>"
+    )
+    assert "Visible" in result
+    assert "Still visible" in result
+    assert "secret payload" not in result
+
+
 def test_research_adapter_requires_absolute_http_endpoint():
     with pytest.raises(ValueError):
         SearxResearchAdapter("searx.local")
