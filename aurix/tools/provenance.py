@@ -70,9 +70,15 @@ def verify_proposal_integrity(proposal_path: Path, proposal_id: str) -> dict[str
         or manifest.get("proposal_id") != proposal_id
     ):
         raise ValueError("Proposal manifest identity mismatch")
+    manifest_size = manifest.get("size_bytes")
+    manifest_digest = manifest.get("sha256")
     if (
-        manifest.get("sha256") != actual
-        or manifest.get("size_bytes") != proposal_path.stat().st_size
+        type(manifest_size) is not int
+        or manifest_size < 0
+        or not isinstance(manifest_digest, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", manifest_digest)
+        or manifest_digest != actual
+        or manifest_size != proposal_path.stat().st_size
     ):
         raise PermissionError(
             "Proposal content changed after it was registered; refusing operation"
