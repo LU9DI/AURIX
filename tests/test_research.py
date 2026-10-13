@@ -124,3 +124,58 @@ def test_public_ip_pinning_transport_rejects_private_dns_answer(monkeypatch):
             httpx.Request("GET", "https://example.org/")
         )
     assert connect_calls == []
+
+
+
+def test_direct_url_fetch_requires_explicit_host_allowlist():
+    from aurix.research import fetch_authorized_public_url
+
+    with pytest.raises(PermissionError, match="AURIX_WEB_ALLOWED_DOMAINS"):
+        fetch_authorized_public_url(
+            "https://docs.example.org/guide",
+            allowed_domains=[],
+        )
+
+
+def test_domain_allowlist_matches_exact_hosts_and_subdomain_wildcards():
+    from aurix.research import _domain_is_allowed
+
+    assert _domain_is_allowed("docs.example.org", ["example.org"])
+    assert not _domain_is_allowed("sub.example.org", ["example.org"])
+    assert _domain_is_allowed("sub.example.org", ["*.example.org"])
+    assert not _domain_is_allowed("example.org.attacker.test", ["*.example.org"])
+
+
+def test_direct_url_fetch_returns_bounded_untrusted_text(monkeypatch):
+    import httpx
+
+    from aurix import research
+
+    class DummyClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+    monkeypatch.setattr(research, "_robots_allows", lambda *args: True)
+    monkeypatch.setattr(research.httpx, "Client", lambda **kwargs: DummyClient())
+    monkeypatch.setattr(
+        research,
+        "_get_limited",
+        lambda *args, **kwargs: (
+            200,
+            {"content-type": "text/html; charset=utf-8"},
+            b"<html><script>ignore me</script><main><h1>Public docs</h1><p>Useful text.</p></main></html>",
+        ),
+    )
+    result = research.fetch_authorized_public_url(
+        "https://docs.example.org/guide",
+        allowed_domains=["example.org"],
+    )
+    assert result["status"] == 200
+    assert "Public docs" in result["content"]
+    assert "Useful text." in result["content"]
+    assert "ignore me" not in result["content"]
+    assert result["untrusted_content"] is True
