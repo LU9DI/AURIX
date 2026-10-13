@@ -156,11 +156,17 @@ def _read_regular_file_no_follow(target: Path, *, max_bytes: int) -> bytes:
         flags |= os.O_BINARY
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
+    before = target.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise FileNotFoundError(str(target))
     descriptor = os.open(target, flags)
     try:
         info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode):
-            raise FileNotFoundError(str(target))
+        if not stat.S_ISREG(info.st_mode) or (info.st_dev, info.st_ino) != (
+            before.st_dev,
+            before.st_ino,
+        ):
+            raise PermissionError("File changed while it was being opened")
         if info.st_size > max_bytes:
             raise ValueError("File exceeds the read-size limit")
         chunks: list[bytes] = []
