@@ -1941,3 +1941,33 @@ def test_inspection_flags_audit_written_before_revert_journal_finalization_failu
     report = inspect_transactions(root)
     assert report["status"] == "manual_intervention_required"
     assert report["transactions"][0]["status"] == "manual_intervention_required"
+
+
+def test_inspection_flags_recovery_finalized_without_recovery_audit_event(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+
+    original_append = patches.append_audit_event
+
+    def fail_recovery_event(workspace, event, transaction_id, details):
+        if event == "transaction_recovered":
+            raise OSError("simulated recovery audit failure")
+        return original_append(workspace, event, transaction_id, details)
+
+    monkeypatch.setattr(patches, "append_audit_event", fail_recovery_event)
+    with pytest.raises(RuntimeError, match="recovery audit event could not be persisted"):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert journal["state"] == "rolled_back"
+    report = inspect_transactions(root)
+    row = report["transactions"][0]
+    assert row["status"] == "manual_intervention_required"
+    assert "recovery audit event does not match" in row["reason"]
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
