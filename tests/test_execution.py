@@ -174,3 +174,47 @@ def test_runner_accepts_only_existing_relative_test_files(tmp_path, monkeypatch)
     assert seen["command"][-1] == "tests/test_ok.py"
     with pytest.raises(ValueError, match="Invalid relative"):
         run_test_suite(tmp_path, "pytest", confirm=True, test_paths=["../outside.py"])
+
+
+
+def test_runner_rejects_option_like_test_paths(tmp_path):
+    for value in ("--collect-only", "-c", "bad\x00path.py"):
+        with pytest.raises(ValueError, match="Invalid relative test path"):
+            run_test_suite(tmp_path, confirm=True, test_paths=[value])
+
+
+def test_runner_rejects_symlinked_parent_directory(tmp_path, monkeypatch):
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "test_ok.py").write_text("def test_ok(): pass\n", encoding="utf-8")
+    link = tmp_path / "linked"
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks unavailable on this platform")
+
+    called = False
+
+    def fake_run(*args, **kwargs):
+        nonlocal called
+        called = True
+        return subprocess.CompletedProcess(args[0], 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(ValueError, match="components must not be symlinks"):
+        run_test_suite(tmp_path, confirm=True, test_paths=["linked/test_ok.py"])
+    assert called is False
+
+
+def test_pytest_paths_are_separated_from_cli_options(tmp_path, monkeypatch):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_ok.py").write_text("def test_ok(): pass\n", encoding="utf-8")
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    run_test_suite(tmp_path, confirm=True, test_paths=["tests/test_ok.py"])
+    assert seen["command"][-3:] == ["--", "tests/test_ok.py"][-3:]
