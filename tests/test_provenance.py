@@ -243,7 +243,7 @@ def test_register_proposal_removes_unchanged_manifest_when_audit_fails(tmp_path,
     monkeypatch.setattr(provenance, "append_audit_event", fail_audit)
     with pytest.raises(RuntimeError, match="creation audit event failed"):
         register_proposal(tmp_path, proposal, "abcdef123456")
-    assert not (proposal_dir / "abcdef123456.manifest.json").exists()
+    assert not (proposal_dir / "abcdef123456.json").exists()
 
 
 def test_register_proposal_preserves_manifest_replaced_during_audit_failure(
@@ -253,7 +253,7 @@ def test_register_proposal_preserves_manifest_replaced_during_audit_failure(
     proposal_dir.mkdir(parents=True)
     proposal = proposal_dir / "abcdef123456.diff"
     proposal.write_text("--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n", encoding="utf-8")
-    manifest_path = proposal_dir / "abcdef123456.manifest.json"
+    manifest_path = proposal_dir / "abcdef123456.json"
     replacement = b'{"replacement":true}\n'
 
     def replace_then_fail(*args, **kwargs):
