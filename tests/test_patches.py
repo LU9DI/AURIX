@@ -1326,3 +1326,26 @@ def test_apply_rejects_patch_target_through_symlinked_parent(tmp_path):
     with pytest.raises(PermissionError, match="Symlink paths"):
         apply_proposal(root, proposal_id, confirm=True)
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+
+
+def test_apply_hashes_the_exact_proposal_bytes_it_decodes(tmp_path, monkeypatch):
+    root, proposal_id = make_repo(tmp_path)
+    proposal = root / ".aurix" / "proposals" / f"{proposal_id}.diff"
+    original = proposal.read_bytes()
+    replacement = (
+        b"--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n"
+        b"-value = 'old'\n+value = 'unexpected'\n"
+    )
+    original_read_text = Path.read_text
+
+    def race_proposal_read(path, *args, **kwargs):
+        if path == proposal:
+            proposal.write_bytes(replacement)
+            return original.decode("utf-8")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", race_proposal_read)
+    result = apply_proposal(root, proposal_id, confirm=True)
+    assert result["status"] == "applied"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\n"
+    assert proposal.read_bytes() == original
