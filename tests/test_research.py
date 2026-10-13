@@ -263,3 +263,40 @@ def test_direct_url_tool_is_listed_in_agent_protocol():
 
     protocol = SYSTEM_PROMPT.split("- tool request:", 1)[1]
     assert "read_public_url" in protocol
+
+
+@pytest.mark.parametrize("content_type", ["text/html", "application/json", ""])
+def test_robots_policy_rejects_unexpected_content_type(monkeypatch, content_type):
+    import httpx
+
+    from aurix import research
+
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+    headers = {"content-type": content_type} if content_type else {}
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers=headers,
+            content=b"<html><body>challenge page</body></html>",
+        )
+    )
+    with httpx.Client(transport=transport) as client:
+        assert research._robots_allows(client, "https://example.org/page", 2.0) is False
+
+
+def test_robots_policy_accepts_plain_text_rules(monkeypatch):
+    import httpx
+
+    from aurix import research
+
+    monkeypatch.setattr(research, "_assert_public_http_url", lambda url: None)
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "text/plain; charset=utf-8"},
+            content=b"User-agent: *\\nDisallow: /private\\n",
+        )
+    )
+    with httpx.Client(transport=transport) as client:
+        assert research._robots_allows(client, "https://example.org/public", 2.0) is True
+        assert research._robots_allows(client, "https://example.org/private/data", 2.0) is False
