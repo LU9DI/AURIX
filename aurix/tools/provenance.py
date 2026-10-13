@@ -11,6 +11,8 @@ import hashlib
 import json
 import os
 import re
+import time
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -87,10 +89,53 @@ def verify_proposal_integrity(proposal_path: Path, proposal_id: str) -> dict[str
     return {"integrity": "verified", "sha256": actual, "created_at": manifest.get("created_at")}
 
 
+@contextmanager
+def _audit_append_lock(metadata: Path):
+    """Serialize audit-chain read/append operations across AURIX processes.
+
+    A lock left by a crash is intentionally not removed automatically. The caller
+    must inspect the workspace before clearing it.
+    """
+    if metadata.is_symlink():
+        raise PermissionError("AURIX metadata directory must not be a symlink")
+    metadata.mkdir(parents=True, exist_ok=True)
+    lock_path = metadata / "audit.lock"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except FileExistsError as exc:
+        raise PermissionError(
+            "Audit append is already running, or a previous append left a stale lock; "
+            "inspect the audit log before removing it"
+        ) from exc
+    lock_stat = os.fstat(fd)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
+            stream.flush()
+            os.fsync(stream.fileno())
+        yield
+    finally:
+        try:
+            current = lock_path.lstat()
+            if (current.st_dev, current.st_ino) == (lock_stat.st_dev, lock_stat.st_ino):
+                lock_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def append_audit_event(
     workspace: Path, event: str, proposal_id: str, details: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     root = workspace.expanduser().resolve()
+    metadata = root / ".aurix"
+    with _audit_append_lock(metadata):
+        return _append_audit_event_locked(root, event, proposal_id, details)
+
+
+def _append_audit_event_locked(
+    root: Path, event: str, proposal_id: str, details: dict[str, Any] | None = None
+) -> dict[str, Any]:
     metadata = root / ".aurix"
     if metadata.is_symlink():
         raise PermissionError("AURIX metadata directory must not be a symlink")
