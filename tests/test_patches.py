@@ -846,6 +846,31 @@ def test_independent_recovery_history_verifier_is_read_only_and_detects_tamperin
     assert report["invalid"] == 1
 
 
+def test_transaction_inspection_rejects_tampered_recovery_history(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal["recovery_history"] = [
+        {
+            "action": "forged_recovery",
+            "result": "verified",
+            "previous_hash": "0" * 64,
+            "entry_hash": "f" * 64,
+        }
+    ]
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    before = journal_path.read_bytes()
+
+    report = inspect_transactions(root)
+
+    assert report["status"] == "manual_intervention_required"
+    row = report["transactions"][0]
+    assert row["status"] == "manual_intervention_required"
+    assert row["reason"] == "recovery history is invalid: PermissionError"
+    assert journal_path.read_bytes() == before
+
+
 def test_external_recovery_anchor_detects_journal_change_removal_and_addition(tmp_path):
     from aurix.tools.patches import (
         create_recovery_anchor,
