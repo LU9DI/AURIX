@@ -2871,3 +2871,29 @@ def test_transaction_journal_directory_fsync_io_error_is_not_suppressed(tmp_path
     # durability confirmation failed and stop before advancing the transaction.
     assert json.loads(journal.read_text(encoding="utf-8")) == updated
     assert not list(journal.parent.glob(f"{proposal_id}.json.*.tmp"))
+
+
+def test_journal_snapshot_rejects_inventory_mutation_during_read(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    transactions = root / ".aurix" / "transactions"
+    transactions.mkdir(parents=True)
+    first = transactions / f"{proposal_id}.json"
+    first.write_text(json.dumps({"proposal_id": proposal_id}), encoding="utf-8")
+    original_read = patches._read_regular_file
+    mutated = False
+
+    def mutate_inventory(path, *, max_bytes, label):
+        nonlocal mutated
+        payload = original_read(path, max_bytes=max_bytes, label=label)
+        if not mutated:
+            mutated = True
+            (transactions / "ffffffffffff.json").write_text(
+                json.dumps({"proposal_id": "ffffffffffff"}), encoding="utf-8"
+            )
+        return payload
+
+    monkeypatch.setattr(patches, "_read_regular_file", mutate_inventory)
+    with pytest.raises(PermissionError, match="inventory changed"):
+        patches._journal_snapshot(root)
