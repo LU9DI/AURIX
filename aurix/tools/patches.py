@@ -1234,21 +1234,35 @@ def recover_transaction(
             )
         rollback = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
         if rollback.returncode:
-            journal.update(
-                state="recovery_interrupted",
-                recovery="manual_intervention_required",
-                updated_at=time.time(),
-                recovery_attempt={
-                    "started_at": now,
-                    "action": "exact_patch_rollback",
-                    "patch_sha256": digest,
-                    "error": rollback.stderr.strip()[:500],
-                },
-            )
-            _write_transaction_journal(root, proposal_id, journal)
-            raise RuntimeError(
-                "Exact rollback failed; recovery journal preserved for manual intervention"
-            )
+            # The process result may be ambiguous if the inverse changed files
+            # before reporting failure. Only continue when the entire tracked
+            # worktree and index independently prove the recorded base state.
+            observed_head = _git_head(root)
+            observed_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+            observed_staged = _git(root, ["diff", "--cached", "--name-only", "--no-renames"])
+            if not (
+                observed_head == journal.get("base_commit")
+                and observed_status.returncode == 0
+                and not observed_status.stdout.strip()
+                and observed_staged.returncode == 0
+                and not observed_staged.stdout.strip()
+            ):
+                journal.update(
+                    state="recovery_interrupted",
+                    recovery="manual_intervention_required",
+                    updated_at=time.time(),
+                    recovery_attempt={
+                        "started_at": now,
+                        "action": "exact_patch_rollback",
+                        "patch_sha256": digest,
+                        "error": rollback.stderr.strip()[:500],
+                    },
+                )
+                _write_transaction_journal(root, proposal_id, journal)
+                raise RuntimeError(
+                    "Exact rollback failed and baseline could not be verified; "
+                    "recovery journal preserved for manual intervention"
+                )
         final_head = _git_head(root)
         final_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
         if (
