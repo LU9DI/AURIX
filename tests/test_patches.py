@@ -1714,7 +1714,7 @@ def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeyp
             injected = True
             target = root / "app.py"
             target.write_text(
-                target.read_text(encoding="utf-8") + "# concurrent edit\\n",
+                target.read_text(encoding="utf-8") + "# concurrent edit\n",
                 encoding="utf-8",
             )
         return original_git(workspace, args, patch=patch)
@@ -1726,7 +1726,7 @@ def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeyp
     assert injected is True
     # The proposal's change was reversed, while the independent write remains.
     assert (root / "app.py").read_text(encoding="utf-8") == (
-        "value = 'old'\\n# concurrent edit\\n"
+        "value = 'old'\n# concurrent edit\n"
     )
     journal = json.loads(
         (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
