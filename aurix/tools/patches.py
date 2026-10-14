@@ -1318,6 +1318,7 @@ def finalize_interrupted_recovery(
         )
         journal.pop("recovery_attempt", None)
         _write_transaction_journal(root, proposal_id, journal)
+        audit_error_after_finalize: Exception | None = None
         try:
             append_audit_event(
                 root,
@@ -1330,12 +1331,46 @@ def finalize_interrupted_recovery(
                 },
             )
         except Exception as exc:
-            # The source baseline and terminal journal are already verified. Do not
-            # imply that finalization was fully audited when the secondary event failed.
+            audit_error_after_finalize = exc
+
+        # Recheck after both journal and audit persistence; never leave a verified
+        # terminal label if an external writer dirtied the baseline in that window.
+        try:
+            final_digest = hashlib.sha256(
+                _read_regular_file(
+                    proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                )
+            ).hexdigest()
+            final_head = _git_head(root)
+            final_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+            final_staged = _git(root, ["diff", "--cached", "--name-only", "--no-renames"])
+            baseline_still_valid = (
+                final_digest == digest
+                and final_head == base_commit
+                and final_status.returncode == 0
+                and not final_status.stdout.strip()
+                and final_staged.returncode == 0
+                and not final_staged.stdout.strip()
+            )
+        except Exception:
+            baseline_still_valid = False
+        if not baseline_still_valid:
+            journal.update(
+                state="recovery_interrupted",
+                recovery="manual_intervention_required",
+                updated_at=time.time(),
+                reason="Repository changed during recovery-finalization journal/audit persistence",
+            )
+            _write_transaction_journal(root, proposal_id, journal)
+            raise RuntimeError(
+                "Repository changed during recovery finalization; transaction was "
+                "returned to a non-terminal state. Manual intervention is required."
+            ) from audit_error_after_finalize
+        if audit_error_after_finalize is not None:
             raise RuntimeError(
                 "Rollback baseline finalized, but recovery-finalization audit event "
                 "could not be persisted; inspect the audit chain"
-            ) from exc
+            ) from audit_error_after_finalize
         return {
             "proposal_id": proposal_id,
             "status": "finalized",
