@@ -2223,3 +2223,42 @@ def test_recovery_refuses_mutation_when_audit_append_lock_exists(tmp_path):
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\n"
     final = json.loads(journal_path.read_text(encoding="utf-8"))
     assert final["state"] == "patch_applied"
+
+
+def test_revert_rechecks_targets_after_journal_persistence(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def race_after_revert_journal(workspace, current_proposal_id, record):
+        nonlocal changed
+        original_write(workspace, current_proposal_id, record)
+        if record.get("state") == "reverting" and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# external edit" + chr(10),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", race_after_revert_journal)
+
+    with pytest.raises(PermissionError, match="changed after reversal journal persistence"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'new'" + chr(10) + "# external edit" + chr(10)
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "reverting"
+    report = inspect_transactions(root)
+    row = next(item for item in report["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
