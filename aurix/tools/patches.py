@@ -603,6 +603,14 @@ def _write_transaction_journal(
     if not isinstance(record, dict) or record.get("proposal_id") != proposal_id:
         raise ValueError("Transaction journal identity must match its proposal ID")
     path = _transaction_journal_path(workspace, proposal_id)
+    try:
+        existing = path.lstat()
+    except FileNotFoundError:
+        existing = None
+    if existing is not None and (
+        stat.S_ISLNK(existing.st_mode) or not stat.S_ISREG(existing.st_mode)
+    ):
+        raise PermissionError("Existing transaction journal must be a regular file")
     payload = (
         json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
     ).encode("utf-8")
