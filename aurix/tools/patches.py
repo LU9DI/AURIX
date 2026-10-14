@@ -653,8 +653,12 @@ def _write_transaction_journal(
 
 def _assert_no_incomplete_transaction(workspace: Path, proposal_id: str) -> None:
     path = _transaction_journal_path(workspace, proposal_id)
-    if not path.exists():
+    try:
+        entry = path.lstat()
+    except FileNotFoundError:
         return
+    if stat.S_ISLNK(entry.st_mode) or not stat.S_ISREG(entry.st_mode):
+        raise PermissionError("Transaction journal must be a regular file")
     try:
         record = _load_strict_json(
                     _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")
