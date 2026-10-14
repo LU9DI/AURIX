@@ -2444,3 +2444,83 @@ def test_revert_audit_failure_does_not_mark_recovery_verified_after_external_edi
         item for item in report["transactions"] if item["proposal_id"] == proposal_id
     )
     assert row["status"] == "manual_intervention_required"
+
+
+
+def test_apply_downgrades_terminal_journal_if_external_edit_races_with_journal_write(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    other = root / "other.py"
+    other.write_text("stable = True" + chr(10), encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "other.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", "add unrelated tracked file"],
+        check=True,
+        capture_output=True,
+    )
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def write_then_edit(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "applied_and_audited" and not changed:
+            changed = True
+            other.write_text("external = True" + chr(10), encoding="utf-8")
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", write_then_edit)
+
+    with pytest.raises(RuntimeError, match="changed during terminal journal persistence"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert other.read_text(encoding="utf-8") == "external = True" + chr(10)
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    assert journal["recovery"] == "pending_verification"
+
+
+def test_revert_downgrades_terminal_journal_if_external_edit_races_with_journal_write(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def write_then_edit(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "reverted_and_audited" and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# external edit" + chr(10),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", write_then_edit)
+
+    with pytest.raises(RuntimeError, match="changed during terminal journal persistence"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# external edit" + chr(10)
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "reverting"
+    assert journal["recovery"] == "pending_verification"
