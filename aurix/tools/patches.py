@@ -2156,6 +2156,24 @@ def _revert_proposal_locked(
             "Repository or patch targets changed after reversal journal persistence; "
             "manual intervention is required"
         )
+    def mark_reverted_and_audited() -> None:
+        if transaction is not None:
+            transaction.update(
+                state="reverted_and_audited",
+                updated_at=time.time(),
+                recovery="verified",
+            )
+            _write_transaction_journal(root, proposal_id, transaction)
+
+    def restore_applied_journal() -> None:
+        if transaction is not None:
+            transaction.update(
+                state="applied_and_audited",
+                updated_at=time.time(),
+                recovery="verified",
+            )
+            _write_transaction_journal(root, proposal_id, transaction)
+
     result = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
     if _git_head(root) != initial_head:
         raise RuntimeError(
@@ -2205,24 +2223,6 @@ def _revert_proposal_locked(
             f"Patch reversal failed and its effects could not be safely reconciled: "
             f"{result.stderr.strip()[:500]}. Recovery status: manual_intervention_required."
         )
-    def mark_reverted_and_audited() -> None:
-        if transaction is not None:
-            transaction.update(
-                state="reverted_and_audited",
-                updated_at=time.time(),
-                recovery="verified",
-            )
-            _write_transaction_journal(root, proposal_id, transaction)
-
-    def restore_applied_journal() -> None:
-        if transaction is not None:
-            transaction.update(
-                state="applied_and_audited",
-                updated_at=time.time(),
-                recovery="verified",
-            )
-            _write_transaction_journal(root, proposal_id, transaction)
-
     after_status = _tracked_status(root)
     if not after_status:
         reverted_target_state = _target_state_snapshot(root, targets)
