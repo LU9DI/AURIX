@@ -717,6 +717,7 @@ def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, tuple[str, s
         if stat.S_ISLNK(lock_after.st_mode) or not stat.S_ISREG(lock_after.st_mode):
             return {}, "audit append lock changed during verification"
         return {}, "audit append lock appeared during verification"
+    lines = raw.splitlines()
     if len(lines) > 100_000:
         return {}, "audit log contains too many events"
     previous = "0" * 64
