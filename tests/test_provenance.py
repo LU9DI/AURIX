@@ -406,3 +406,24 @@ def test_audit_lock_fsync_failure_cleans_up_without_appending(tmp_path, monkeypa
     metadata = tmp_path / ".aurix"
     assert not (metadata / "audit.lock").exists()
     assert not (metadata / "audit.jsonl").exists()
+
+def test_audit_append_lock_closes_descriptor_if_fstat_fails(tmp_path, monkeypatch):
+    real_close = provenance.os.close
+    closed = []
+
+    def fail_fstat(_fd):
+        raise OSError("simulated fstat failure")
+
+    def track_close(fd):
+        closed.append(fd)
+        return real_close(fd)
+
+    monkeypatch.setattr(provenance.os, "fstat", fail_fstat)
+    monkeypatch.setattr(provenance.os, "close", track_close)
+
+    with pytest.raises(OSError, match="simulated fstat failure"):
+        append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+
+    assert (tmp_path / ".aurix" / "audit.lock").is_file()
+    assert len(closed) == 1
+
