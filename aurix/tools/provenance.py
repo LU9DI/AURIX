@@ -260,6 +260,10 @@ def _append_audit_event_locked(
             raw_data = stream.read(10_000_001)
             if len(raw_data) > 10_000_000:
                 raise ValueError("Audit log is not a bounded regular file")
+        # A JSONL record must end with a newline. Otherwise the next O_APPEND
+        # write would concatenate two JSON objects and corrupt the chain.
+        if raw_data and not raw_data.endswith(b"\\n"):
+            raise ValueError("Audit log ends with an incomplete line; manual repair is required")
         raw_lines = raw_data.splitlines()
     if raw_lines and len(raw_lines) > 100_000:
         raise ValueError("Audit log contains too many events")
