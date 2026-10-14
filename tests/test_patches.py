@@ -2936,3 +2936,41 @@ def test_revert_restores_applied_patch_if_git_reports_failure_after_inverse_muta
     )
     assert journal["state"] == "applied_and_audited"
     assert journal["recovery"] == "verified"
+
+
+def test_recover_transaction_accepts_verified_base_after_git_reports_rollback_failure(
+    tmp_path, monkeypatch
+):
+    import subprocess
+
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    original_git = patches._git
+    injected = False
+
+    def reverse_then_report_failure(workspace, args, *, patch=None):
+        nonlocal injected
+        result = original_git(workspace, args, patch=patch)
+        if not injected and args[:3] == ["apply", "--reverse", "--whitespace=error"]:
+            injected = True
+            assert result.returncode == 0
+            return subprocess.CompletedProcess(
+                args, 1, stdout="", stderr="simulated post-mutation failure"
+            )
+        return result
+
+    monkeypatch.setattr(patches, "_git", reverse_then_report_failure)
+    result = patches.recover_transaction(root, proposal_id, confirm=True)
+
+    assert injected
+    assert result["status"] == "recovered"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'" + chr(10)
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "rolled_back"
+    assert final["recovery"] == "verified"
