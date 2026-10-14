@@ -1752,7 +1752,7 @@ def test_apply_rolls_back_patch_but_preserves_unrelated_racing_edit(tmp_path, mo
 
     root, proposal_id = make_repo(tmp_path)
     unrelated = root / "other.py"
-    unrelated.write_text("value = 'baseline'\\n", encoding="utf-8")
+    unrelated.write_text("value = 'baseline'\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(root), "add", "other.py"], check=True)
     subprocess.run(
         ["git", "-C", str(root), "commit", "-m", "add unrelated tracked file"],
@@ -1766,7 +1766,7 @@ def test_apply_rolls_back_patch_but_preserves_unrelated_racing_edit(tmp_path, mo
         nonlocal injected
         if args == ["apply", "--whitespace=error", "-"] and patch is not None and not injected:
             injected = True
-            unrelated.write_text("value = 'external edit'\\n", encoding="utf-8")
+            unrelated.write_text("value = 'external edit'\n", encoding="utf-8")
         return original_git(workspace, args, patch=patch)
 
     monkeypatch.setattr(patches, "_git", edit_unrelated_before_apply)
@@ -1774,8 +1774,8 @@ def test_apply_rolls_back_patch_but_preserves_unrelated_racing_edit(tmp_path, mo
         apply_proposal(root, proposal_id, confirm=True)
 
     assert injected is True
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
-    assert unrelated.read_text(encoding="utf-8") == "value = 'external edit'\\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\n"
+    assert unrelated.read_text(encoding="utf-8") == "value = 'external edit'\n"
     journal = json.loads(
         (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
             encoding="utf-8"
