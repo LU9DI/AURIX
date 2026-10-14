@@ -6,6 +6,8 @@ import subprocess
 
 import pytest
 
+import aurix.tools.patches as patches
+from aurix.tools.provenance import append_audit_event
 from aurix.tools.patches import (
     _write_transaction_journal,
     _workspace_operation_lock,
@@ -2007,6 +2009,31 @@ def test_inspection_cross_checks_applied_journal_with_verified_audit_event(tmp_p
     row = report["transactions"][0]
     assert row["status"] == "manual_intervention_required"
     assert "lifecycle audit event does not match" in row["reason"]
+
+
+def test_lifecycle_audit_verification_rejects_log_replacement_during_read(tmp_path, monkeypatch):
+    root, proposal_id = make_repo(tmp_path)
+    append_audit_event(root, "test_event", proposal_id, {"patch_sha256": "0" * 64})
+    log = root / ".aurix" / "audit.jsonl"
+    original_read = patches._read_regular_file
+    replaced = False
+
+    def replace_after_read(path, *, max_bytes, label):
+        nonlocal replaced
+        payload = original_read(path, max_bytes=max_bytes, label=label)
+        if Path(path) == log and not replaced:
+            replacement = log.with_suffix(".replacement")
+            replacement.write_bytes(log.read_bytes())
+            os.replace(replacement, log)
+            replaced = True
+        return payload
+
+    monkeypatch.setattr(patches, "_read_regular_file", replace_after_read)
+    events, error = patches._verified_lifecycle_audit_events(root)
+
+    assert replaced
+    assert events == {}
+    assert error == "audit log changed during verification"
 
 
 def test_inspection_rejects_corrupted_audit_chain_for_terminal_journal(tmp_path):
