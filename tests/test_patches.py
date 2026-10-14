@@ -2297,3 +2297,55 @@ def test_revert_does_not_finalize_when_target_has_external_edit(tmp_path):
     report = inspect_transactions(root)
     row = next(item for item in report["transactions"] if item["proposal_id"] == proposal_id)
     assert row["status"] == "manual_intervention_required"
+
+
+
+def test_revert_does_not_finalize_when_external_edit_races_with_audit_persistence(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_append = patches.append_audit_event
+    changed = False
+
+    def append_then_edit(workspace, event, current_id, details):
+        nonlocal changed
+        result = original_append(workspace, event, current_id, details)
+        if event == "proposal_reverted" and current_id == proposal_id and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# external edit" + chr(10),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", append_then_edit)
+
+    with pytest.raises(RuntimeError, match="changed during reversal audit persistence"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# external edit" + chr(10)
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "reverting"
+    events = [
+        json.loads(line)
+        for line in (root / ".aurix" / "audit.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+    assert events[-1]["event"] == "proposal_reverted"
+    report = inspect_transactions(root)
+    row = next(
+        item for item in report["transactions"] if item["proposal_id"] == proposal_id
+    )
+    assert row["status"] == "manual_intervention_required"
