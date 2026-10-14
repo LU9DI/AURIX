@@ -1122,6 +1122,7 @@ def recover_transaction(
             or sorted(diff.stdout.splitlines()) != targets
         ):
             raise PermissionError("Repository changed during recovery preflight")
+        baseline_target_state = _target_state_snapshot(root, targets)
         now = time.time()
         journal.update(
             state="recovery_in_progress",
@@ -1134,6 +1135,48 @@ def recover_transaction(
             },
         )
         _write_transaction_journal(root, proposal_id, journal)
+        # Journal persistence can race with editors just like apply/revert. Recheck
+        # all mutation preconditions after the durable state transition and before
+        # reversing any source file.
+        try:
+            post_journal_proposal_digest = hashlib.sha256(
+                _read_regular_file(
+                    proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                )
+            ).hexdigest()
+            post_journal_status = _git(
+                root, ["status", "--porcelain", "--untracked-files=no"]
+            )
+            post_journal_staged = _git(
+                root, ["diff", "--cached", "--name-only", "--no-renames"]
+            )
+            post_journal_diff = _git(root, ["diff", "--name-only", "--no-renames"])
+            recovery_preconditions_valid = (
+                post_journal_proposal_digest == digest
+                and _git_head(root) == journal.get("base_commit")
+                and post_journal_status.returncode == 0
+                and bool(post_journal_status.stdout.strip())
+                and post_journal_staged.returncode == 0
+                and not post_journal_staged.stdout.strip()
+                and post_journal_diff.returncode == 0
+                and sorted(line for line in post_journal_diff.stdout.splitlines() if line)
+                == targets
+                and _target_state_snapshot(root, targets) == baseline_target_state
+            )
+        except Exception:
+            recovery_preconditions_valid = False
+        if not recovery_preconditions_valid:
+            journal.update(
+                state="recovery_interrupted",
+                recovery="manual_intervention_required",
+                updated_at=time.time(),
+                reason="Repository changed after recovery journal persistence",
+            )
+            _write_transaction_journal(root, proposal_id, journal)
+            raise PermissionError(
+                "Repository changed after recovery journal persistence; "
+                "manual intervention is required"
+            )
         rollback = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
         if rollback.returncode:
             journal.update(
