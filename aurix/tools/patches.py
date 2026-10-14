@@ -209,8 +209,10 @@ def inspect_operation_lock(workspace: Path | str) -> dict[str, object]:
     try:
         if info.st_size > 4096:
             raise ValueError("lock record exceeds size limit")
-        record = json.loads(
-            lock_path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_keys
+        record = _load_strict_json(
+            _read_regular_file(
+                lock_path, max_bytes=4096, label="Operation lock"
+            ).decode("utf-8")
         )
         if (
             not isinstance(record, dict)
