@@ -3078,3 +3078,65 @@ def test_recover_transaction_refuses_journal_edit_after_intermediate_write(
     assert changed
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'" + chr(10)
     assert journal_path.read_text(encoding="utf-8").endswith(" ")
+
+
+
+def test_finalize_recovery_refuses_journal_edit_after_terminal_write(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(
+        state="recovery_interrupted", recovery="manual_intervention_required"
+    )
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    subprocess.run(
+        [
+            "git", "-C", str(root), "apply", "--reverse",
+            "--whitespace=error", "-"
+        ],
+        input=(root / ".aurix" / "proposals" / f"{proposal_id}.diff").read_text(
+            encoding="utf-8"
+        ),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    original_write = patches._write_transaction_journal
+    original_append = patches.append_audit_event
+    changed = False
+    audit_events = []
+
+    def write_then_edit_journal(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "rolled_back" and not changed:
+            changed = True
+            journal_path.write_text(
+                journal_path.read_text(encoding="utf-8") + " ",
+                encoding="utf-8",
+            )
+
+    def record_audit(workspace, event, current_id, details):
+        audit_events.append(event)
+        return original_append(workspace, event, current_id, details)
+
+    monkeypatch.setattr(
+        patches, "_write_transaction_journal", write_then_edit_journal
+    )
+    monkeypatch.setattr(patches, "append_audit_event", record_audit)
+
+    with pytest.raises(
+        PermissionError,
+        match="Recovery journal changed after finalization persistence",
+    ):
+        finalize_interrupted_recovery(root, proposal_id, confirm=True)
+
+    assert changed
+    assert "transaction_recovery_finalized" not in audit_events
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'" + chr(10)
+    assert journal_path.read_text(encoding="utf-8").endswith(" ")
