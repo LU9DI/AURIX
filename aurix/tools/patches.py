@@ -1843,6 +1843,37 @@ def _apply_proposal_locked(
         )
     transaction.update(state="applied_and_audited", updated_at=time.time(), recovery="verified")
     _write_transaction_journal(root, proposal_id, transaction)
+    # Journal persistence itself is another race window: an external writer may
+    # change tracked files while the terminal record is being written.
+    final_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+    final_changed = _git(root, ["diff", "--name-only", "--no-renames"])
+    final_staged = _git(root, ["diff", "--cached", "--quiet"])
+    final_proposal = _read_regular_file(
+        proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+    )
+    if (
+        final_status.returncode != 0
+        or final_status.stdout.strip() == ""
+        or final_changed.returncode != 0
+        or final_staged.returncode != 0
+        or _git_head(root) != initial_head
+        or sorted(line for line in final_changed.stdout.splitlines() if line)
+        != sorted(set(targets))
+        or _target_state_snapshot(root, targets) != expected_target_state
+        or hashlib.sha256(final_proposal).hexdigest() != patch_digest
+    ):
+        transaction.update(
+            state="patch_applied",
+            updated_at=time.time(),
+            recovery="pending_verification",
+            reason="Repository changed during terminal journal persistence",
+        )
+        _write_transaction_journal(root, proposal_id, transaction)
+        raise RuntimeError(
+            "Repository changed during terminal journal persistence; transaction "
+            "was returned to a non-terminal state. "
+            "Recovery status: manual_intervention_required."
+        )
     return {
         "proposal_id": proposal_id,
         "status": "applied",
@@ -2021,6 +2052,30 @@ def _revert_proposal_locked(
                 "Recovery status: manual_intervention_required."
             )
         mark_reverted_and_audited()
+        # Verify once more after the terminal journal write. If an external
+        # writer raced with that persistence, downgrade the journal for recovery.
+        final_proposal = _read_regular_file(
+            proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+        )
+        if (
+            _git_head(root) != initial_head
+            or _tracked_status(root)
+            or _target_state_snapshot(root, targets) != reverted_target_state
+            or hashlib.sha256(final_proposal).hexdigest() != patch_digest
+        ):
+            if transaction is not None:
+                transaction.update(
+                    state="reverting",
+                    updated_at=time.time(),
+                    recovery="pending_verification",
+                    reason="Repository changed during terminal journal persistence",
+                )
+                _write_transaction_journal(root, proposal_id, transaction)
+            raise RuntimeError(
+                "Repository changed during terminal journal persistence; transaction "
+                "was returned to a non-terminal state. "
+                "Recovery status: manual_intervention_required."
+            )
         return {
             "proposal_id": proposal_id,
             "status": "reverted",
