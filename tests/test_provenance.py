@@ -389,5 +389,5 @@ def test_first_audit_append_syncs_directory_entries(tmp_path, monkeypatch):
 
     metadata = tmp_path / ".aurix"
     assert synced.count(metadata) >= 3  # lock creation, log creation, lock removal
-    assert (metadata / "audit.jsonl").read_bytes().endswith(b"\n")
+    assert (metadata / "audit.jsonl").read_bytes().endswith(bytes([10]))
     assert not (metadata / "audit.lock").exists()
