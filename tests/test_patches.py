@@ -1699,6 +1699,46 @@ def test_apply_detects_same_target_edit_racing_git_apply(tmp_path, monkeypatch):
 
 
 
+
+def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeypatch):
+    """A write after the final preflight must not be erased by automatic rollback."""
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    original_git = patches._git
+    injected = False
+
+    def edit_target_before_apply(workspace, args, *, patch=None):
+        nonlocal injected
+        if args == ["apply", "--whitespace=error", "-"] and patch is not None and not injected:
+            injected = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# concurrent edit\\n",
+                encoding="utf-8",
+            )
+        return original_git(workspace, args, patch=patch)
+
+    monkeypatch.setattr(patches, "_git", edit_target_before_apply)
+    with pytest.raises(RuntimeError, match="final tracked status differs from expectation"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert injected is True
+    # The proposal's change was reversed, while the independent write remains.
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'\\n# concurrent edit\\n"
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    inventory = inspect_transactions(root)
+    row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
+
+
 def test_apply_detects_target_edit_during_audit_persistence(tmp_path, monkeypatch):
     """Do not mark a transaction terminal if a target changes during audit writing."""
     from aurix.tools import patches
