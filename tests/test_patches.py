@@ -408,14 +408,14 @@ def test_apply_rechecks_worktree_after_journal_persistence(tmp_path, monkeypatch
         original_write(workspace, current_proposal_id, record)
         if record.get("state") == "applying" and not changed:
             changed = True
-            (root / "app.py").write_text("value = 'external edit'\\n", encoding="utf-8")
+            (root / "app.py").write_text("value = 'external edit'", encoding="utf-8")
 
     monkeypatch.setattr(patches, "_write_transaction_journal", race_after_journal)
     with pytest.raises(PermissionError, match="Tracked worktree changed after transaction journal"):
         apply_proposal(root, proposal_id, confirm=True)
 
     assert changed
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'external edit'\\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'external edit'"
     journal = json.loads(
         (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(encoding="utf-8")
     )
