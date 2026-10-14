@@ -1278,7 +1278,7 @@ def test_recovery_concurrent_edit_after_intent_fails_closed(tmp_path, monkeypatc
             )
 
     monkeypatch.setattr(patches, "_write_transaction_journal", write_then_race)
-    with pytest.raises(RuntimeError, match="Exact rollback failed"):
+    with pytest.raises(PermissionError, match="changed after recovery journal persistence"):
         patches.recover_transaction(root, proposal_id, confirm=True)
 
     assert injected is True
