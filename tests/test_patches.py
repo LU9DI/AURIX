@@ -2030,3 +2030,23 @@ def test_inspection_requires_review_when_audit_append_lock_exists(tmp_path):
     assert row["status"] == "manual_intervention_required"
     assert "audit append lock exists" in row["reason"]
     assert lock_path.exists()
+
+
+def test_recovery_planner_blocks_when_audit_append_lock_exists(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    (root / ".aurix" / "audit.lock").write_text(
+        json.dumps({"pid": 12345, "created_at": 1}), encoding="utf-8"
+    )
+
+    report = plan_transaction_recovery(root)
+
+    assert report["status"] == "manual_intervention_required"
+    plan = report["plans"][0]
+    assert plan["action"] == "manual_review"
+    assert plan["safe_to_automate"] is False
+    assert "audit evidence is inconsistent" in plan["reason"]
