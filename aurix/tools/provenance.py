@@ -163,7 +163,22 @@ def verify_proposal_integrity(
             manifest_stat = os.fstat(stream.fileno())
             if not stat.S_ISREG(manifest_stat.st_mode) or manifest_stat.st_size > 16_384:
                 raise PermissionError("Unsafe proposal manifest")
+            if (manifest_stat.st_dev, manifest_stat.st_ino) != (
+                entry_stat.st_dev, entry_stat.st_ino
+            ):
+                raise PermissionError("Proposal manifest changed during verification")
             manifest_bytes = stream.read(16_385)
+            after_read = os.fstat(stream.fileno())
+            stable_before = (
+                manifest_stat.st_dev, manifest_stat.st_ino, manifest_stat.st_size,
+                manifest_stat.st_mtime_ns, manifest_stat.st_ctime_ns
+            )
+            stable_after = (
+                after_read.st_dev, after_read.st_ino, after_read.st_size,
+                after_read.st_mtime_ns, after_read.st_ctime_ns
+            )
+            if stable_before != stable_after or len(manifest_bytes) != after_read.st_size:
+                raise PermissionError("Proposal manifest changed during verification")
             if len(manifest_bytes) > 16_384:
                 raise PermissionError("Unsafe proposal manifest")
         manifest = json.loads(
