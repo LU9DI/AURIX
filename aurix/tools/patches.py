@@ -162,6 +162,22 @@ def _workspace_operation_lock(workspace: Path):
             stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
             stream.flush()
             os.fsync(stream.fileno())
+        # An external metadata writer can unlink/replace the pathname after O_EXCL
+        # succeeds. Do not enter the critical section unless the visible lock still
+        # names the inode we created; cleanup below only unlinks that same inode.
+        try:
+            visible_lock = lock_path.lstat()
+        except OSError as exc:
+            raise PermissionError(
+                "Workspace operation lock changed during acquisition; manual inspection is required"
+            ) from exc
+        if (
+            not stat.S_ISREG(visible_lock.st_mode)
+            or (visible_lock.st_dev, visible_lock.st_ino) != (stat.st_dev, stat.st_ino)
+        ):
+            raise PermissionError(
+                "Workspace operation lock changed during acquisition; manual inspection is required"
+            )
         # Persist the directory entry where supported, not only the lock contents.
         try:
             directory_fd = os.open(metadata, os.O_RDONLY)
