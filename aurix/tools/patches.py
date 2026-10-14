@@ -1731,6 +1731,24 @@ def _apply_proposal_locked(
         "recovery": "manual_if_interrupted",
     }
     _write_transaction_journal(root, proposal_id, transaction)
+    # Journal persistence can take long enough for an external editor or Git
+    # process to change the worktree after the earlier preflight. Recheck the
+    # base commit, tracked cleanliness, and target snapshot immediately before
+    # the mutating Git operation. A remaining race after these checks is still
+    # possible; post-apply reconciliation remains mandatory.
+    if _git_head(root) != initial_head:
+        raise PermissionError(
+            "Git HEAD changed after transaction journal creation; refusing to apply"
+        )
+    pre_apply_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+    if pre_apply_status.returncode != 0 or pre_apply_status.stdout.strip():
+        raise PermissionError(
+            "Tracked worktree changed after transaction journal creation; refusing to apply"
+        )
+    if _target_state_snapshot(root, targets) != baseline_target_state:
+        raise PermissionError(
+            "Patch targets changed after transaction journal creation; refusing to apply"
+        )
     applied = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
     if applied.returncode != 0:
         # Git apply is expected to be atomic, but explicitly inspect and recover
