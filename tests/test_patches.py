@@ -1193,7 +1193,7 @@ def test_recovery_refuses_journal_mutation_during_audit_preflight(tmp_path, monk
         recover_transaction(root, proposal_id, confirm=True)
 
     assert injected
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'" + chr(10)
     assert json.loads(journal_path.read_text(encoding="utf-8"))["external_metadata_change"] is True
 
 
