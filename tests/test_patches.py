@@ -1745,6 +1745,49 @@ def test_apply_detects_head_change_racing_git_apply(tmp_path, monkeypatch):
 
 
 
+
+def test_apply_rolls_back_patch_but_preserves_unrelated_racing_edit(tmp_path, monkeypatch):
+    """Rollback the proposal without erasing an unrelated edit racing Git apply."""
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    unrelated = root / "other.py"
+    unrelated.write_text("value = 'baseline'\\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "other.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", "add unrelated tracked file"],
+        check=True,
+        capture_output=True,
+    )
+    original_git = patches._git
+    injected = False
+
+    def edit_unrelated_before_apply(workspace, args, *, patch=None):
+        nonlocal injected
+        if args == ["apply", "--whitespace=error", "-"] and patch is not None and not injected:
+            injected = True
+            unrelated.write_text("value = 'external edit'\\n", encoding="utf-8")
+        return original_git(workspace, args, patch=patch)
+
+    monkeypatch.setattr(patches, "_git", edit_unrelated_before_apply)
+    with pytest.raises(RuntimeError, match="final tracked status differs from expectation"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert injected is True
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'\\n"
+    assert unrelated.read_text(encoding="utf-8") == "value = 'external edit'\\n"
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    inventory = inspect_transactions(root)
+    row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
+
+
+
 def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeypatch):
     """A target edit racing the final preflight must be preserved for manual recovery."""
     from aurix.tools import patches
