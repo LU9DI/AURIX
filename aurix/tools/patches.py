@@ -328,6 +328,15 @@ def _read_regular_file(path: Path, *, max_bytes: int, label: str) -> bytes:
             chunks.append(chunk)
             remaining -= len(chunk)
         payload = b"".join(chunks)
+        after = os.fstat(fd)
+        identity_before = (
+            info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+        )
+        identity_after = (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns
+        )
+        if identity_before != identity_after or len(payload) != after.st_size:
+            raise PermissionError(f"{label} changed while being read")
         if len(payload) > max_bytes:
             raise ValueError(f"{label} exceeds size limit")
         return payload
