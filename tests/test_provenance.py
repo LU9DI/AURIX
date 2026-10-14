@@ -427,3 +427,29 @@ def test_audit_append_lock_closes_descriptor_if_fstat_fails(tmp_path, monkeypatc
     assert (tmp_path / ".aurix" / "audit.lock").is_file()
     assert len(closed) == 1
 
+def test_audit_append_refuses_log_changed_during_snapshot(tmp_path, monkeypatch):
+    append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+    real_fstat = provenance.os.fstat
+    calls = 0
+
+    def mutate_snapshot(fd):
+        nonlocal calls
+        result = real_fstat(fd)
+        calls += 1
+        if calls == 2:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                st_dev=result.st_dev,
+                st_ino=result.st_ino,
+                st_size=result.st_size,
+                st_mode=result.st_mode,
+                st_mtime_ns=result.st_mtime_ns,
+                st_ctime_ns=result.st_ctime_ns + 1,
+            )
+        return result
+
+    monkeypatch.setattr(provenance.os, "fstat", mutate_snapshot)
+    with pytest.raises(PermissionError, match="changed while being read"):
+        provenance._append_audit_event_locked(tmp_path, "proposal_reviewed", "abcdef123456")
+
