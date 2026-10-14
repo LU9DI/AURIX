@@ -6,6 +6,7 @@ modified; the Git worktree must be clean before application.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -607,10 +608,17 @@ def _write_transaction_journal(
                 os.fsync(directory_fd)
             finally:
                 os.close(directory_fd)
-        except OSError:
-            # Directory fsync is not supported on every platform; file content
-            # remains fsynced, and the journal is still useful for recovery.
-            pass
+        except OSError as exc:
+            # Ignore only errors that explicitly mean directory fsync is unsupported.
+            # I/O and permission failures must reach the caller: otherwise a transaction
+            # could proceed while its journal rename is not known to be durable.
+            unsupported = {
+                errno.EINVAL,
+                getattr(errno, "ENOTSUP", errno.EINVAL),
+                getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+            }
+            if exc.errno not in unsupported:
+                raise
     finally:
         try:
             temp.unlink()
