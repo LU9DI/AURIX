@@ -7,6 +7,7 @@ import subprocess
 import pytest
 
 from aurix.tools.patches import (
+    _write_transaction_journal,
     _workspace_operation_lock,
     apply_proposal,
     finalize_interrupted_recovery,
@@ -2840,3 +2841,33 @@ def test_recovery_anchor_refuses_journal_changed_after_validation(tmp_path, monk
     assert changed
     assert not anchor.exists()
 
+
+
+def test_transaction_journal_directory_fsync_io_error_is_not_suppressed(tmp_path, monkeypatch):
+    import errno
+
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    record = {"proposal_id": proposal_id, "state": "before"}
+    _write_transaction_journal(root, proposal_id, record)
+    journal = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    original_fsync = patches.os.fsync
+    calls = 0
+
+    def fail_directory_fsync(fd):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError(errno.EIO, "simulated directory metadata I/O failure")
+        return original_fsync(fd)
+
+    monkeypatch.setattr(patches.os, "fsync", fail_directory_fsync)
+    updated = {"proposal_id": proposal_id, "state": "after"}
+    with pytest.raises(OSError, match="simulated directory metadata I/O failure"):
+        _write_transaction_journal(root, proposal_id, updated)
+
+    # Rename may already have happened; the caller must still learn that its
+    # durability confirmation failed and stop before advancing the transaction.
+    assert json.loads(journal.read_text(encoding="utf-8")) == updated
+    assert not list(journal.parent.glob(f"{proposal_id}.json.*.tmp"))
