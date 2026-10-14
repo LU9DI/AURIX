@@ -687,13 +687,34 @@ def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, tuple[str, s
     if lock_path.exists():
         return {}, "audit append lock exists; active or stale append requires manual review"
     log = metadata / "audit.jsonl"
+    # A descriptor-stable read alone does not prove that the path still names
+    # that inode: a concurrent writer can atomically replace the log while it
+    # is being read. Bind the verified bytes to the directory entry and reject
+    # an append lock appearing across the snapshot.
     try:
+        before = log.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            return {}, "audit log is not a regular file"
         raw = _read_regular_file(log, max_bytes=10_000_000, label="Audit log")
-    except FileNotFoundError:
-        return {}, "audit log is missing"
+        after = log.lstat()
+        lock_after = lock_path.lstat()
+    except FileNotFoundError as exc:
+        if exc.filename and Path(exc.filename) == str(lock_path):
+            return {}, "audit append lock appeared during verification"
+        return {}, "audit log is missing or changed during verification"
     except (OSError, PermissionError, ValueError) as exc:
-        return {}, f"audit log is unreadable: {type(exc).__name__}"
-    lines = raw.splitlines()
+        return {}, f"audit log is unreadable or changed: {type(exc).__name__}"
+    before_identity = (
+        before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns
+    )
+    after_identity = (
+        after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns
+    )
+    if before_identity != after_identity or len(raw) != after.st_size:
+        return {}, "audit log changed during verification"
+    if stat.S_ISLNK(lock_after.st_mode) or not stat.S_ISREG(lock_after.st_mode):
+        return {}, "audit append lock changed during verification"
+    return {}, "audit append lock appeared during verification"
     if len(lines) > 100_000:
         return {}, "audit log contains too many events"
     previous = "0" * 64
