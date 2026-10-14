@@ -697,10 +697,11 @@ def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, tuple[str, s
             return {}, "audit log is not a regular file"
         raw = _read_regular_file(log, max_bytes=10_000_000, label="Audit log")
         after = log.lstat()
-        lock_after = lock_path.lstat()
-    except FileNotFoundError as exc:
-        if exc.filename and Path(exc.filename) == str(lock_path):
-            return {}, "audit append lock appeared during verification"
+        try:
+            lock_after = lock_path.lstat()
+        except FileNotFoundError:
+            lock_after = None
+    except FileNotFoundError:
         return {}, "audit log is missing or changed during verification"
     except (OSError, PermissionError, ValueError) as exc:
         return {}, f"audit log is unreadable or changed: {type(exc).__name__}"
@@ -712,9 +713,10 @@ def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, tuple[str, s
     )
     if before_identity != after_identity or len(raw) != after.st_size:
         return {}, "audit log changed during verification"
-    if stat.S_ISLNK(lock_after.st_mode) or not stat.S_ISREG(lock_after.st_mode):
-        return {}, "audit append lock changed during verification"
-    return {}, "audit append lock appeared during verification"
+    if lock_after is not None:
+        if stat.S_ISLNK(lock_after.st_mode) or not stat.S_ISREG(lock_after.st_mode):
+            return {}, "audit append lock changed during verification"
+        return {}, "audit append lock appeared during verification"
     if len(lines) > 100_000:
         return {}, "audit log contains too many events"
     previous = "0" * 64
