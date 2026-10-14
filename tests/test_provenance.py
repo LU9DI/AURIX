@@ -302,9 +302,9 @@ def test_atomic_write_uses_unique_temp_and_preserves_stale_temp(tmp_path):
     stale_temp = tmp_path / "manifest.json.tmp"
     stale_temp.write_bytes(b"unrelated stale file")
 
-    provenance._atomic_write(target, b'{"safe":true}\\n')
+    provenance._atomic_write(target, b'{"safe":true}\n')
 
-    assert target.read_bytes() == b'{"safe":true}\\n'
+    assert target.read_bytes() == b'{"safe":true}\n'
     assert stale_temp.read_bytes() == b"unrelated stale file"
     assert sorted(path.name for path in tmp_path.iterdir()) == [
         "manifest.json",
@@ -321,7 +321,7 @@ def test_register_proposal_does_not_overwrite_manifest_created_after_precheck(
     proposal = proposal_dir / "abcdef123456.diff"
     proposal.write_bytes(b"patch")
     manifest_path = proposal.with_suffix(".json")
-    replacement = b'{"created_by_concurrent_registration":true}\\n'
+    replacement = b'{"created_by_concurrent_registration":true}\n'
     original_atomic_create = provenance._atomic_create
 
     def race_before_atomic_create(path, content):
@@ -363,7 +363,7 @@ def test_audit_append_detects_external_append_between_read_and_write(tmp_path, m
         if not raced and str(path) == str(log) and flags & provenance.os.O_APPEND:
             raced = True
             with log.open("ab") as stream:
-                stream.write(b'{}\\n')
+                stream.write(b'{}\n')
         return original_open(path, flags, *args, **kwargs)
 
     monkeypatch.setattr(provenance.os, "open", append_external_bytes_before_open)
@@ -371,5 +371,5 @@ def test_audit_append_detects_external_append_between_read_and_write(tmp_path, m
         append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
 
     assert raced
-    assert log.read_bytes().endswith(b'{}\\n')
+    assert log.read_bytes().endswith(b'{}\n')
     assert not (tmp_path / ".aurix" / "audit.lock").exists()
