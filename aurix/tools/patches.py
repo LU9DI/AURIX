@@ -1136,11 +1136,10 @@ def recover_transaction(
     with _workspace_operation_lock(root):
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
-            journal = _load_strict_json(
-                _read_regular_file(
-                    journal_path, max_bytes=1_000_000, label="Transaction journal"
-                ).decode("utf-8")
+            journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
             )
+            journal = _load_strict_json(journal_bytes.decode("utf-8"))
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError(
                 "Transaction journal is unreadable; manual recovery is required"
@@ -1150,6 +1149,20 @@ def recover_transaction(
                 "Transaction journal identity is invalid; manual recovery is required"
             )
         _, audit_error = _verified_lifecycle_audit_events(root)
+        # The operation lock excludes other AURIX operations, not direct edits to
+        # local metadata. Do not proceed on a stale in-memory journal snapshot.
+        try:
+            current_journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
+            )
+        except (OSError, ValueError) as exc:
+            raise PermissionError(
+                "Transaction journal changed during recovery preflight; manual recovery is required"
+            ) from exc
+        if current_journal_bytes != journal_bytes:
+            raise PermissionError(
+                "Transaction journal changed during recovery preflight; manual recovery is required"
+            )
         if audit_error is not None:
             raise PermissionError(
                 f"Audit evidence is unavailable or inconsistent; recovery refused: {audit_error}"
@@ -1405,11 +1418,10 @@ def finalize_interrupted_recovery(
     with _workspace_operation_lock(root):
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
-            journal = _load_strict_json(
-                _read_regular_file(
-                    journal_path, max_bytes=1_000_000, label="Transaction journal"
-                ).decode("utf-8")
+            journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
             )
+            journal = _load_strict_json(journal_bytes.decode("utf-8"))
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError(
                 "Transaction journal is unreadable; manual recovery is required"
@@ -1419,6 +1431,20 @@ def finalize_interrupted_recovery(
                 "Transaction journal identity is invalid; manual recovery is required"
             )
         _, audit_error = _verified_lifecycle_audit_events(root)
+        # The operation lock excludes other AURIX operations, not direct edits to
+        # local metadata. Do not proceed on a stale in-memory journal snapshot.
+        try:
+            current_journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
+            )
+        except (OSError, ValueError) as exc:
+            raise PermissionError(
+                "Transaction journal changed during recovery preflight; manual recovery is required"
+            ) from exc
+        if current_journal_bytes != journal_bytes:
+            raise PermissionError(
+                "Transaction journal changed during recovery preflight; manual recovery is required"
+            )
         if audit_error is not None:
             raise PermissionError(
                 f"Audit evidence is unavailable or inconsistent; recovery finalization refused: {audit_error}"
