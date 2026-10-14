@@ -2273,18 +2273,19 @@ def test_revert_does_not_finalize_when_target_has_external_edit(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(RuntimeError, match="left tracked changes behind"):
+    with pytest.raises(ValueError, match="reverse patch no longer applies"):
         revert_proposal(root, proposal_id, confirm=True)
 
+    # Refuse before mutation when the target diverges from the exact applied patch.
     assert target.read_text(encoding="utf-8") == (
-        "value = 'old'" + chr(10) + "# external edit" + chr(10)
+        "value = 'new'" + chr(10) + "# external edit" + chr(10)
     )
     journal = json.loads(
         (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
             encoding="utf-8"
         )
     )
-    assert journal["state"] == "reverting"
+    assert journal["state"] == "applied_and_audited"
     events = [
         json.loads(line)
         for line in (root / ".aurix" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
