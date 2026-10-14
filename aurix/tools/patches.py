@@ -382,10 +382,17 @@ def _load_strict_json(payload: str) -> object:
 def create_recovery_anchor(workspace: Path | str, anchor_path: Path | str) -> dict[str, object]:
     """Create an explicit external snapshot of transaction journals after validation."""
     root, anchor = _external_anchor_path(workspace, anchor_path)
+    # Bind validation to the exact journal inventory being anchored. A mutation
+    # between validation and hashing must not become a trusted external baseline.
+    before = _journal_snapshot(root)
     report = verify_recovery_histories(root)
     if report["invalid"]:
         raise PermissionError("Cannot anchor invalid recovery journals; resolve them first")
     snapshot = _journal_snapshot(root)
+    if before != snapshot:
+        raise PermissionError(
+            "Transaction journals changed during recovery-anchor creation; retry after inspection"
+        )
     payload_obj = {
         "schema_version": 1,
         "algorithm": "sha256",
