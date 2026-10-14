@@ -220,7 +220,12 @@ def _audit_append_lock(metadata: Path):
             "Audit append is already running, or a previous append left a stale lock; "
             "inspect the audit log before removing it"
         ) from exc
-    lock_stat = os.fstat(fd)
+    try:
+        lock_stat = os.fstat(fd)
+    except BaseException:
+        # Keep an unverified lock path for manual inspection, but never leak its fd.
+        os.close(fd)
+        raise
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
@@ -268,7 +273,11 @@ def _append_audit_event_locked(
             raise PermissionError("Audit log must not be a symlink") from exc
         raise ValueError("Audit log is unreadable") from exc
     else:
-        info = os.fstat(read_fd)
+        try:
+            info = os.fstat(read_fd)
+        except BaseException:
+            os.close(read_fd)
+            raise
         if not stat.S_ISREG(info.st_mode) or info.st_size > 10_000_000:
             os.close(read_fd)
             raise ValueError("Audit log is not a bounded regular file")
