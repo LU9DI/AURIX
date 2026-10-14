@@ -2066,6 +2066,6 @@ def test_recovery_refuses_mutation_when_audit_append_lock_exists(tmp_path):
     with pytest.raises(PermissionError, match="Audit evidence is unavailable or inconsistent"):
         recover_transaction(root, proposal_id, confirm=True)
 
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\n"
     final = json.loads(journal_path.read_text(encoding="utf-8"))
     assert final["state"] == "patch_applied"
