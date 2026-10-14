@@ -171,10 +171,7 @@ def _workspace_operation_lock(workspace: Path):
             raise PermissionError(
                 "Workspace operation lock changed during acquisition; manual inspection is required"
             ) from exc
-        if (
-            not stat.S_ISREG(visible_lock.st_mode)
-            or (visible_lock.st_dev, visible_lock.st_ino) != (stat.st_dev, stat.st_ino)
-        ):
+        if (visible_lock.st_dev, visible_lock.st_ino) != (stat.st_dev, stat.st_ino):
             raise PermissionError(
                 "Workspace operation lock changed during acquisition; manual inspection is required"
             )
