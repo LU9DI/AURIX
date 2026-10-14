@@ -2717,3 +2717,29 @@ def test_transaction_journal_writer_rejects_mismatched_identity(tmp_path):
             {"proposal_id": "ffffffffffff", "state": "applying"},
         )
     assert not (root / ".aurix" / "transactions" / f"{proposal_id}.json").exists()
+
+def test_workspace_operation_lock_closes_descriptor_if_fstat_fails(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, _ = make_repo(tmp_path)
+    real_close = patches.os.close
+    closed = []
+
+    def fail_fstat(_fd):
+        raise OSError("simulated fstat failure")
+
+    def track_close(fd):
+        closed.append(fd)
+        return real_close(fd)
+
+    monkeypatch.setattr(patches.os, "fstat", fail_fstat)
+    monkeypatch.setattr(patches.os, "close", track_close)
+
+    with pytest.raises(OSError, match="simulated fstat failure"):
+        with patches._workspace_operation_lock(root):
+            pytest.fail("lock setup must fail before entering the protected section")
+
+    lock_path = root / ".aurix" / "operation.lock"
+    assert lock_path.is_file()
+    assert len(closed) == 1
+
