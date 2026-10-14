@@ -2262,3 +2262,37 @@ def test_revert_rechecks_targets_after_journal_persistence(tmp_path, monkeypatch
     report = inspect_transactions(root)
     row = next(item for item in report["transactions"] if item["proposal_id"] == proposal_id)
     assert row["status"] == "manual_intervention_required"
+
+
+def test_revert_does_not_finalize_when_target_has_external_edit(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    target = root / "app.py"
+    target.write_text(
+        target.read_text(encoding="utf-8") + "# external edit" + chr(10),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="left tracked changes behind"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    assert target.read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# external edit" + chr(10)
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "reverting"
+    events = [
+        json.loads(line)
+        for line in (root / ".aurix" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert not any(
+        event["event"] == "proposal_reverted" and event["proposal_id"] == proposal_id
+        for event in events
+    )
+    report = inspect_transactions(root)
+    row = next(item for item in report["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
