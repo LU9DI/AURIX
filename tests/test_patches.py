@@ -1700,6 +1700,51 @@ def test_apply_detects_same_target_edit_racing_git_apply(tmp_path, monkeypatch):
 
 
 
+
+def test_apply_detects_head_change_racing_git_apply(tmp_path, monkeypatch):
+    """A commit racing the final preflight must leave the transaction non-terminal."""
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    original_git = patches._git
+    injected = False
+
+    def commit_before_apply(workspace, args, *, patch=None):
+        nonlocal injected
+        if args == ["apply", "--whitespace=error", "-"] and patch is not None and not injected:
+            injected = True
+            (root / "external.py").write_text("external = True\\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "-C", str(root), "add", "external.py"],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-m", "concurrent external commit"],
+                check=True,
+                capture_output=True,
+            )
+        return original_git(workspace, args, patch=patch)
+
+    monkeypatch.setattr(patches, "_git", commit_before_apply)
+    with pytest.raises(RuntimeError, match="Git HEAD changed while the patch was being applied"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert injected is True
+    assert (root / "external.py").read_text(encoding="utf-8") == "external = True\\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\\n"
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    inventory = inspect_transactions(root)
+    row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
+    assert row["status"] == "manual_intervention_required"
+
+
+
 def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeypatch):
     """A target edit racing the final preflight must be preserved for manual recovery."""
     from aurix.tools import patches
