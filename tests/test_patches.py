@@ -396,6 +396,32 @@ def test_apply_detects_head_change_during_preflight(tmp_path, monkeypatch):
     assert patches._git_head(root) != ""
 
 
+def test_apply_rechecks_worktree_after_journal_persistence(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def race_after_journal(workspace, current_proposal_id, record):
+        nonlocal changed
+        original_write(workspace, current_proposal_id, record)
+        if record.get("state") == "applying" and not changed:
+            changed = True
+            (root / "app.py").write_text("value = 'external edit'\\n", encoding="utf-8")
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", race_after_journal)
+    with pytest.raises(PermissionError, match="Tracked worktree changed after transaction journal"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'external edit'\\n"
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(encoding="utf-8")
+    )
+    assert journal["state"] == "applying"
+
+
 def test_audit_gate_rejects_finding_with_mismatched_line_evidence(tmp_path):
     import json
 
