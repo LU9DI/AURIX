@@ -1866,8 +1866,21 @@ def _revert_proposal_locked(
     if inside.returncode != 0 or Path(inside.stdout.strip()).resolve() != root:
         raise ValueError("Workspace must be the Git repository root")
     status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
-    if status.returncode != 0 or not status.stdout.strip():
-        raise PermissionError("No tracked changes are available to revert, or Git status failed")
+    staged = _git(root, ["diff", "--cached", "--name-only", "--no-renames"])
+    changed = _git(root, ["diff", "--name-only", "--no-renames"])
+    actual_targets = sorted(line for line in changed.stdout.splitlines() if line)
+    if (
+        status.returncode != 0
+        or not status.stdout.strip()
+        or staged.returncode != 0
+        or staged.stdout.strip()
+        or changed.returncode != 0
+        or actual_targets != sorted(set(targets))
+    ):
+        raise PermissionError(
+            "Tracked worktree or index differs from the exact applied proposal; "
+            "manual intervention is required"
+        )
     check = _git(root, ["apply", "--reverse", "--check", "--whitespace=error", "-"], patch=patch)
     if check.returncode != 0:
         raise ValueError(
@@ -1983,19 +1996,15 @@ def _revert_proposal_locked(
             "transaction": "reverted_and_audited",
             "recovery_status": "verified",
         }
-    # Existing tracked changes may predate the patch; the exact inverse must
-    # restore the same status, not merely any non-empty dirty state.
-    if after_status != before_status:
-        forward_check = _git(root, ["apply", "--check", "--whitespace=error", "-"], patch=patch)
-        if forward_check.returncode == 0:
-            forward = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
-            if forward.returncode == 0 and _tracked_status(root) == before_status:
-                restore_applied_journal()
-                raise RuntimeError(
-                    "Reversal changed unexpected tracked state; original patch was restored"
-                )
+    # A successful reverse must restore a clean tracked worktree. The original
+    # apply operation requires a clean worktree, so any residual tracked diff means
+    # an external edit raced with reversal or the recorded state was not exact.
+    # Do not reapply the proposal automatically: that could overwrite or obscure
+    # the concurrent edit. Preserve the non-terminal journal for manual review.
+    if after_status:
         raise RuntimeError(
-            "Reversal changed unexpected tracked state; recovery status: manual_intervention_required"
+            "Reversal left tracked changes behind; transaction remains non-terminal. "
+            "Recovery status: manual_intervention_required."
         )
     try:
         append_audit_event(
