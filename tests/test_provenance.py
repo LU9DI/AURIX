@@ -340,7 +340,7 @@ def test_audit_append_rejects_valid_json_without_trailing_newline(tmp_path):
     append_audit_event(tmp_path, "proposal_created", "abcdef123456")
     log = tmp_path / ".aurix" / "audit.jsonl"
     complete = log.read_bytes()
-    assert complete.endswith(b"\\n")
+    assert complete.endswith(b"\n")
     log.write_bytes(complete[:-1])
     before = log.read_bytes()
 
