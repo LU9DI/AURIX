@@ -20,6 +20,20 @@ from pathlib import Path
 from typing import Any
 
 
+def _fsync_directory(path: Path) -> None:
+    """Best-effort persistence of directory-entry changes on supported filesystems."""
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        directory_fd = os.open(path, flags)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError:
+        # Some platforms/filesystems do not support opening or syncing directories.
+        pass
+
+
 def _metadata_path(proposal_path: Path) -> Path:
     return proposal_path.with_suffix(".json")
 
@@ -212,12 +226,15 @@ def _audit_append_lock(metadata: Path):
             stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
             stream.flush()
             os.fsync(stream.fileno())
+        # Make the lock directory entry durable before appending to the audit chain.
+        _fsync_directory(metadata)
         yield
     finally:
         try:
             current = lock_path.lstat()
             if (current.st_dev, current.st_ino) == (lock_stat.st_dev, lock_stat.st_ino):
                 lock_path.unlink()
+                _fsync_directory(metadata)
         except FileNotFoundError:
             pass
 
@@ -314,6 +331,10 @@ def _append_audit_event_locked(
             stream.flush()
             os.fsync(stream.fileno())
         fd = -1
+        if log_identity is None:
+            # fsync(file) persists the event bytes; fsync(parent) also persists
+            # creation of audit.jsonl when this was the first event.
+            _fsync_directory(metadata)
     finally:
         if fd >= 0:
             os.close(fd)
