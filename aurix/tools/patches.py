@@ -148,7 +148,14 @@ def _workspace_operation_lock(workspace: Path):
             "Another AURIX patch operation holds the workspace lock, or a previous "
             "operation left a stale lock; inspect repository state before removing it"
         ) from exc
-    stat = os.fstat(fd)
+    try:
+        stat = os.fstat(fd)
+    except BaseException:
+        # The descriptor is ours, but without a successful fstat we cannot prove
+        # that the path still names this inode. Close the descriptor and leave the
+        # lock in place for manual inspection rather than unlinking an unverified path.
+        os.close(fd)
+        raise
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
