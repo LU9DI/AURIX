@@ -1851,17 +1851,21 @@ def _apply_proposal_locked(
     final_proposal = _read_regular_file(
         proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
     )
-    if (
-        final_status.returncode != 0
-        or final_status.stdout.strip() == ""
-        or final_changed.returncode != 0
-        or final_staged.returncode != 0
-        or _git_head(root) != initial_head
-        or sorted(line for line in final_changed.stdout.splitlines() if line)
-        != sorted(set(targets))
-        or _target_state_snapshot(root, targets) != expected_target_state
-        or hashlib.sha256(final_proposal).hexdigest() != patch_digest
-    ):
+    try:
+        final_state_valid = (
+            final_status.returncode == 0
+            and bool(final_status.stdout.strip())
+            and final_changed.returncode == 0
+            and final_staged.returncode == 0
+            and _git_head(root) == initial_head
+            and sorted(line for line in final_changed.stdout.splitlines() if line)
+            == sorted(set(targets))
+            and _target_state_snapshot(root, targets) == expected_target_state
+            and hashlib.sha256(final_proposal).hexdigest() == patch_digest
+        )
+    except Exception:
+        final_state_valid = False
+    if not final_state_valid:
         transaction.update(
             state="patch_applied",
             updated_at=time.time(),
@@ -2057,12 +2061,16 @@ def _revert_proposal_locked(
         final_proposal = _read_regular_file(
             proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
         )
-        if (
-            _git_head(root) != initial_head
-            or _tracked_status(root)
-            or _target_state_snapshot(root, targets) != reverted_target_state
-            or hashlib.sha256(final_proposal).hexdigest() != patch_digest
-        ):
+        try:
+            final_state_valid = (
+                _git_head(root) == initial_head
+                and not _tracked_status(root)
+                and _target_state_snapshot(root, targets) == reverted_target_state
+                and hashlib.sha256(final_proposal).hexdigest() == patch_digest
+            )
+        except Exception:
+            final_state_valid = False
+        if not final_state_valid:
             if transaction is not None:
                 transaction.update(
                     state="reverting",
