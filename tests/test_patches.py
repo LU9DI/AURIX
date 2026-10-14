@@ -2050,3 +2050,22 @@ def test_recovery_planner_blocks_when_audit_append_lock_exists(tmp_path):
     assert plan["action"] == "manual_review"
     assert plan["safe_to_automate"] is False
     assert "audit evidence is inconsistent" in plan["reason"]
+
+
+def test_recovery_refuses_mutation_when_audit_append_lock_exists(tmp_path):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    (root / ".aurix" / "audit.lock").write_text(
+        json.dumps({"pid": 12345, "created_at": 1}), encoding="utf-8"
+    )
+
+    with pytest.raises(PermissionError, match="Audit evidence is unavailable or inconsistent"):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\\n"
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "patch_applied"
