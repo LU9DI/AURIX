@@ -2897,3 +2897,42 @@ def test_journal_snapshot_rejects_inventory_mutation_during_read(tmp_path, monke
     monkeypatch.setattr(patches, "_read_regular_file", mutate_inventory)
     with pytest.raises(PermissionError, match="inventory changed"):
         patches._journal_snapshot(root)
+
+
+def test_revert_restores_applied_patch_if_git_reports_failure_after_inverse_mutation(
+    tmp_path, monkeypatch
+):
+    import subprocess
+
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_git = patches._git
+    injected = False
+
+    def reverse_then_report_failure(workspace, args, *, patch=None):
+        nonlocal injected
+        result = original_git(workspace, args, patch=patch)
+        if not injected and args[:3] == ["apply", "--reverse", "--whitespace=error"]:
+            injected = True
+            assert result.returncode == 0
+            return subprocess.CompletedProcess(
+                args, 1, stdout="", stderr="simulated post-mutation failure"
+            )
+        return result
+
+    monkeypatch.setattr(patches, "_git", reverse_then_report_failure)
+
+    with pytest.raises(RuntimeError, match="original patch was restored and verified"):
+        patches.revert_proposal(root, proposal_id, confirm=True)
+
+    assert injected
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'" + chr(10)
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "applied_and_audited"
+    assert journal["recovery"] == "verified"
