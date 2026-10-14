@@ -1185,6 +1185,7 @@ def recover_transaction(
         )
         journal.pop("recovery_attempt", None)
         _write_transaction_journal(root, proposal_id, journal)
+        audit_error_after_rollback: Exception | None = None
         try:
             append_audit_event(
                 root,
@@ -1193,11 +1194,45 @@ def recover_transaction(
                 {"action": "exact_patch_rollback", "patch_sha256": digest, "result": "verified"},
             )
         except Exception as exc:
-            # The worktree is already verified clean. Keep the journal terminal, but
-            # disclose that the secondary audit event failed rather than misstate it.
+            audit_error_after_rollback = exc
+
+        # Audit persistence and the terminal journal write are both race windows.
+        # Verify the rollback baseline again before reporting a terminal recovery.
+        try:
+            final_proposal_digest = hashlib.sha256(
+                _read_regular_file(
+                    proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                )
+            ).hexdigest()
+            final_head = _git_head(root)
+            final_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+            final_staged = _git(root, ["diff", "--cached", "--name-only", "--no-renames"])
+            baseline_still_valid = (
+                final_proposal_digest == digest
+                and final_head == journal.get("base_commit")
+                and final_status.returncode == 0
+                and not final_status.stdout.strip()
+                and final_staged.returncode == 0
+                and not final_staged.stdout.strip()
+            )
+        except Exception:
+            baseline_still_valid = False
+        if not baseline_still_valid:
+            journal.update(
+                state="recovery_interrupted",
+                recovery="manual_intervention_required",
+                updated_at=time.time(),
+                reason="Repository changed during recovery journal/audit persistence",
+            )
+            _write_transaction_journal(root, proposal_id, journal)
+            raise RuntimeError(
+                "Repository changed during recovery finalization; transaction was "
+                "returned to a non-terminal state. Manual intervention is required."
+            ) from audit_error_after_rollback
+        if audit_error_after_rollback is not None:
             raise RuntimeError(
                 "Rollback verified, but recovery audit event could not be persisted"
-            ) from exc
+            ) from audit_error_after_rollback
         return {
             "proposal_id": proposal_id,
             "status": "recovered",
