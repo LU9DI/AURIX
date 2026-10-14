@@ -2688,3 +2688,32 @@ def test_recover_transaction_rechecks_repository_after_journal_persistence(
     final = json.loads(journal_path.read_text(encoding="utf-8"))
     assert final["state"] == "recovery_interrupted"
     assert final["recovery"] == "manual_intervention_required"
+
+
+def test_transaction_journal_refuses_non_regular_existing_path(tmp_path):
+    from aurix.tools.patches import _write_transaction_journal
+
+    root, proposal_id = make_repo(tmp_path)
+    journal_dir = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal_dir.parent.mkdir(parents=True, exist_ok=True)
+    journal_dir.mkdir()
+    with pytest.raises(PermissionError, match="regular file"):
+        _write_transaction_journal(
+            root,
+            proposal_id,
+            {"proposal_id": proposal_id, "state": "applying"},
+        )
+    assert journal_dir.is_dir()
+
+
+def test_transaction_journal_writer_rejects_mismatched_identity(tmp_path):
+    from aurix.tools.patches import _write_transaction_journal
+
+    root, proposal_id = make_repo(tmp_path)
+    with pytest.raises(ValueError, match="identity"):
+        _write_transaction_journal(
+            root,
+            proposal_id,
+            {"proposal_id": "ffffffffffff", "state": "applying"},
+        )
+    assert not (root / ".aurix" / "transactions" / f"{proposal_id}.json").exists()
