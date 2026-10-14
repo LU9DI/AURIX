@@ -2163,7 +2163,48 @@ def _revert_proposal_locked(
             "manual_intervention_required. Inspect the worktree immediately."
         )
     if result.returncode != 0:
-        raise RuntimeError(f"Patch reversal failed: {result.stderr.strip()[:500]}")
+        # A failed Git invocation is not proof that no files were changed. If the
+        # inverse was applied despite the reported failure, restore the exact
+        # original patch state before marking the journal terminal again.
+        try:
+            current_status = _tracked_status(root)
+            current_targets = _target_state_snapshot(root, targets)
+            if current_status == before_status and current_targets == baseline_target_state:
+                restore_applied_journal()
+                raise RuntimeError(
+                    f"Patch reversal failed without changing the worktree: "
+                    f"{result.stderr.strip()[:500]}"
+                )
+            if not current_status:
+                forward_check = _git(
+                    root, ["apply", "--check", "--whitespace=error", "-"], patch=patch
+                )
+                if forward_check.returncode == 0:
+                    forward = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
+                    if (
+                        forward.returncode == 0
+                        and _git_head(root) == initial_head
+                        and _tracked_status(root) == before_status
+                        and _target_state_snapshot(root, targets) == baseline_target_state
+                        and hashlib.sha256(
+                            _read_regular_file(
+                                proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                            )
+                        ).hexdigest() == patch_digest
+                    ):
+                        restore_applied_journal()
+                        raise RuntimeError(
+                            "Patch reversal reported failure; original patch was restored "
+                            "and verified"
+                        )
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"Patch reversal failed and its effects could not be safely reconciled: "
+            f"{result.stderr.strip()[:500]}. Recovery status: manual_intervention_required."
+        )
     def mark_reverted_and_audited() -> None:
         if transaction is not None:
             transaction.update(
