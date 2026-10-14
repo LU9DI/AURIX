@@ -2810,3 +2810,33 @@ def test_regular_file_snapshot_rejects_mutation_during_read(tmp_path, monkeypatc
     with pytest.raises(PermissionError, match="changed while being read"):
         patches._read_regular_file(target, max_bytes=1024, label="Transaction journal")
 
+def test_recovery_anchor_refuses_journal_changed_after_validation(tmp_path, monkeypatch):
+    import aurix.tools.patches as patches
+
+    root, proposal_id = make_repo(tmp_path)
+    transactions = root / ".aurix" / "transactions"
+    transactions.mkdir(parents=True)
+    journal = transactions / f"{proposal_id}.json"
+    journal.write_text(
+        json.dumps({"proposal_id": proposal_id, "state": "rolled_back", "recovery_history": []}),
+        encoding="utf-8",
+    )
+    original_verify = patches.verify_recovery_histories
+    changed = False
+
+    def verify_then_mutate(workspace):
+        nonlocal changed
+        report = original_verify(workspace)
+        if not changed:
+            changed = True
+            journal.write_text(journal.read_text(encoding="utf-8") + " ", encoding="utf-8")
+        return report
+
+    monkeypatch.setattr(patches, "verify_recovery_histories", verify_then_mutate)
+    anchor = tmp_path / "external-anchor.json"
+    with pytest.raises(PermissionError, match="changed during recovery-anchor creation"):
+        patches.create_recovery_anchor(root, anchor)
+
+    assert changed
+    assert not anchor.exists()
+
