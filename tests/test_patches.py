@@ -2565,3 +2565,88 @@ def test_legacy_reversal_creates_recovery_journal_before_mutation(
     assert (root / "app.py").read_text(encoding="utf-8") == (
         "value = 'old'" + chr(10) + "# legacy external edit" + chr(10)
     )
+
+
+def test_recover_transaction_downgrades_if_external_edit_races_with_audit(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    original_append = patches.append_audit_event
+    changed = False
+
+    def append_then_edit(workspace, event, current_id, details):
+        nonlocal changed
+        result = original_append(workspace, event, current_id, details)
+        if event == "transaction_recovered" and current_id == proposal_id and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# recovery race" + chr(10),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", append_then_edit)
+    with pytest.raises(RuntimeError, match="changed during recovery finalization"):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# recovery race" + chr(10)
+    )
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "recovery_interrupted"
+    assert final["recovery"] == "manual_intervention_required"
+
+
+def test_finalize_recovery_downgrades_if_external_edit_races_with_audit(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="recovery_interrupted", recovery="manual_intervention_required")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(root), "apply", "--reverse", "--whitespace=error", "-"],
+        input=(root / ".aurix" / "proposals" / f"{proposal_id}.diff").read_text(encoding="utf-8"),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    original_append = patches.append_audit_event
+    changed = False
+
+    def append_then_edit(workspace, event, current_id, details):
+        nonlocal changed
+        result = original_append(workspace, event, current_id, details)
+        if event == "transaction_recovery_finalized" and current_id == proposal_id and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# finalize race" + chr(10),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", append_then_edit)
+    with pytest.raises(RuntimeError, match="changed during recovery finalization"):
+        finalize_interrupted_recovery(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# finalize race" + chr(10)
+    )
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "recovery_interrupted"
+    assert final["recovery"] == "manual_intervention_required"
