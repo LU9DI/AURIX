@@ -1043,11 +1043,6 @@ def recover_transaction(
         raise PermissionError("Explicit confirmation is required to recover a transaction")
     root = Path(workspace).expanduser().resolve()
     with _workspace_operation_lock(root):
-        _, audit_error = _verified_lifecycle_audit_events(root)
-        if audit_error is not None:
-            raise PermissionError(
-                f"Audit evidence is unavailable or inconsistent; recovery refused: {audit_error}"
-            )
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
             journal = _load_strict_json(
@@ -1062,6 +1057,11 @@ def recover_transaction(
         if not isinstance(journal, dict) or journal.get("proposal_id") != proposal_id:
             raise PermissionError(
                 "Transaction journal identity is invalid; manual recovery is required"
+            )
+        _, audit_error = _verified_lifecycle_audit_events(root)
+        if audit_error is not None:
+            raise PermissionError(
+                f"Audit evidence is unavailable or inconsistent; recovery refused: {audit_error}"
             )
         if journal.get("state") not in {"applying", "patch_applied"}:
             raise PermissionError(
@@ -1220,11 +1220,6 @@ def finalize_interrupted_recovery(
         raise PermissionError("Explicit confirmation is required to finalize interrupted recovery")
     root = Path(workspace).expanduser().resolve()
     with _workspace_operation_lock(root):
-        _, audit_error = _verified_lifecycle_audit_events(root)
-        if audit_error is not None:
-            raise PermissionError(
-                f"Audit evidence is unavailable or inconsistent; recovery finalization refused: {audit_error}"
-            )
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
             journal = _load_strict_json(
@@ -1239,6 +1234,11 @@ def finalize_interrupted_recovery(
         if not isinstance(journal, dict) or journal.get("proposal_id") != proposal_id:
             raise PermissionError(
                 "Transaction journal identity is invalid; manual recovery is required"
+            )
+        _, audit_error = _verified_lifecycle_audit_events(root)
+        if audit_error is not None:
+            raise PermissionError(
+                f"Audit evidence is unavailable or inconsistent; recovery finalization refused: {audit_error}"
             )
         if journal.get("state") not in {"recovery_in_progress", "recovery_interrupted"}:
             raise PermissionError("Only an interrupted recovery journal can be finalized")
