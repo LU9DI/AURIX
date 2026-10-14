@@ -928,6 +928,7 @@ def plan_transaction_recovery(workspace: Path | str) -> dict[str, object]:
     inspection = inspect_transactions(root)
     plans: list[dict[str, object]] = []
     metadata = root / ".aurix"
+    _, planning_audit_error = _verified_lifecycle_audit_events(root)
     for row in inspection["transactions"]:
         assert isinstance(row, dict)
         proposal_id = row.get("proposal_id")
@@ -943,9 +944,11 @@ def plan_transaction_recovery(workspace: Path | str) -> dict[str, object]:
             "reason": row.get("reason", "transaction requires review"),
         }
         inspection_reason = str(row.get("reason", ""))
-        if "audit" in inspection_reason.casefold():
+        if planning_audit_error is not None or "audit" in inspection_reason.casefold():
             plan["reason"] = (
                 "audit evidence is inconsistent; automatic recovery planning is blocked"
+                if planning_audit_error is not None
+                else inspection_reason
             )
             plans.append(plan)
             continue
