@@ -349,3 +349,27 @@ def test_audit_append_rejects_valid_json_without_trailing_newline(tmp_path):
 
     assert log.read_bytes() == before
     assert not (tmp_path / ".aurix" / "audit.lock").exists()
+
+
+
+def test_audit_append_detects_external_append_between_read_and_write(tmp_path, monkeypatch):
+    append_audit_event(tmp_path, "proposal_created", "abcdef123456")
+    log = tmp_path / ".aurix" / "audit.jsonl"
+    original_open = provenance.os.open
+    raced = False
+
+    def append_external_bytes_before_open(path, flags, *args, **kwargs):
+        nonlocal raced
+        if not raced and str(path) == str(log) and flags & provenance.os.O_APPEND:
+            raced = True
+            with log.open("ab") as stream:
+                stream.write(b'{}\\n')
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(provenance.os, "open", append_external_bytes_before_open)
+    with pytest.raises(PermissionError, match="changed during append"):
+        append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+
+    assert raced
+    assert log.read_bytes().endswith(b'{}\\n')
+    assert not (tmp_path / ".aurix" / "audit.lock").exists()
