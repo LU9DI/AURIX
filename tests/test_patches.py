@@ -2781,3 +2781,32 @@ def test_inspect_operation_lock_rejects_symlink_swap_before_read(tmp_path, monke
     assert report["status"] == "invalid"
     assert "symlink" in report["reason"]
 
+def test_regular_file_snapshot_rejects_mutation_during_read(tmp_path, monkeypatch):
+    import aurix.tools.patches as patches
+
+    target = tmp_path / "journal.json"
+    target.write_text('{"state":"applying"}', encoding="utf-8")
+    real_fstat = patches.os.fstat
+    calls = 0
+
+    def mutate_snapshot(fd):
+        nonlocal calls
+        result = real_fstat(fd)
+        calls += 1
+        if calls == 2:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                st_dev=result.st_dev,
+                st_ino=result.st_ino,
+                st_size=result.st_size,
+                st_mode=result.st_mode,
+                st_mtime_ns=result.st_mtime_ns,
+                st_ctime_ns=result.st_ctime_ns + 1,
+            )
+        return result
+
+    monkeypatch.setattr(patches.os, "fstat", mutate_snapshot)
+    with pytest.raises(PermissionError, match="changed while being read"):
+        patches._read_regular_file(target, max_bytes=1024, label="Transaction journal")
+
