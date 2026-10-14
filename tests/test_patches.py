@@ -2743,3 +2743,40 @@ def test_workspace_operation_lock_closes_descriptor_if_fstat_fails(tmp_path, mon
     assert lock_path.is_file()
     assert len(closed) == 1
 
+def test_inspect_operation_lock_rejects_symlink_swap_before_read(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from aurix.tools.patches import inspect_operation_lock
+
+    root, _ = make_repo(tmp_path)
+    metadata = root / ".aurix"
+    metadata.mkdir(exist_ok=True)
+    lock_path = metadata / "operation.lock"
+    lock_path.write_text(
+        json.dumps({"pid": os.getpid(), "created_at": 1}),
+        encoding="utf-8",
+    )
+    external = tmp_path / "external-lock.json"
+    external.write_text(
+        json.dumps({"pid": os.getpid(), "created_at": 1}),
+        encoding="utf-8",
+    )
+    original_is_file = Path.is_file
+    swapped = False
+
+    def swap_after_file_check(path):
+        nonlocal swapped
+        result = original_is_file(path)
+        if path == lock_path and result and not swapped:
+            swapped = True
+            lock_path.unlink()
+            lock_path.symlink_to(external)
+        return result
+
+    monkeypatch.setattr(Path, "is_file", swap_after_file_check)
+    report = inspect_operation_lock(root)
+
+    assert swapped
+    assert report["status"] == "invalid"
+    assert "symlink" in report["reason"]
+
