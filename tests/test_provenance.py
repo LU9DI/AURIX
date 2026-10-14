@@ -453,3 +453,35 @@ def test_audit_append_refuses_log_changed_during_snapshot(tmp_path, monkeypatch)
     with pytest.raises(PermissionError, match="changed while being read"):
         provenance._append_audit_event_locked(tmp_path, "proposal_reviewed", "abcdef123456")
 
+def test_manifest_verification_rejects_mutation_during_read(tmp_path, monkeypatch):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_text("diff --git a/a b/a\n", encoding="utf-8")
+    register_proposal(tmp_path, proposal, "abcdef123456")
+    snapshot = proposal.read_bytes()
+
+    real_fstat = provenance.os.fstat
+    calls = 0
+
+    def mutate_manifest_snapshot(fd):
+        nonlocal calls
+        result = real_fstat(fd)
+        calls += 1
+        if calls == 2:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                st_dev=result.st_dev,
+                st_ino=result.st_ino,
+                st_size=result.st_size,
+                st_mode=result.st_mode,
+                st_mtime_ns=result.st_mtime_ns,
+                st_ctime_ns=result.st_ctime_ns + 1,
+            )
+        return result
+
+    monkeypatch.setattr(provenance.os, "fstat", mutate_manifest_snapshot)
+    with pytest.raises(PermissionError, match="manifest changed during verification"):
+        verify_proposal_integrity(proposal, "abcdef123456", proposal_bytes=snapshot)
+
