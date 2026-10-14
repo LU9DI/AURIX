@@ -1169,6 +1169,34 @@ def test_recovery_replay_refuses_already_rolled_back_transaction(tmp_path):
 
 
 
+def test_recovery_refuses_journal_mutation_during_audit_preflight(tmp_path, monkeypatch):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    record = json.loads(journal_path.read_text(encoding="utf-8"))
+    record.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(record), encoding="utf-8")
+    original_verify = patches._verified_lifecycle_audit_events
+    injected = False
+
+    def verify_then_edit(workspace):
+        nonlocal injected
+        result = original_verify(workspace)
+        changed = json.loads(journal_path.read_text(encoding="utf-8"))
+        changed["external_metadata_change"] = True
+        journal_path.write_text(json.dumps(changed), encoding="utf-8")
+        injected = True
+        return result
+
+    monkeypatch.setattr(patches, "_verified_lifecycle_audit_events", verify_then_edit)
+    with pytest.raises(PermissionError, match="journal changed during recovery preflight"):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert injected
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\\n"
+    assert json.loads(journal_path.read_text(encoding="utf-8"))["external_metadata_change"] is True
+
+
 def test_recovery_accepts_applying_journal_when_exact_patch_is_present(tmp_path):
     """Recover a crash after git apply but before persisting patch_applied."""
     from aurix.tools.patches import recover_transaction
