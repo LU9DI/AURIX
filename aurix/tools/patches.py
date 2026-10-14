@@ -1821,14 +1821,21 @@ def _apply_proposal_locked(
     # the repository no longer matches the exact expected patch result.
     post_audit_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
     post_audit_changed = _git(root, ["diff", "--name-only", "--no-renames"])
+    post_audit_staged = _git(root, ["diff", "--cached", "--quiet"])
     post_audit_targets = sorted(
         line for line in post_audit_changed.stdout.splitlines() if line
+    )
+    current_proposal = _read_regular_file(
+        proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
     )
     if (
         post_audit_status.returncode != 0
         or post_audit_changed.returncode != 0
+        or post_audit_staged.returncode != 0
+        or _git_head(root) != initial_head
         or post_audit_targets != sorted(set(targets))
         or _target_state_snapshot(root, targets) != expected_target_state
+        or hashlib.sha256(current_proposal).hexdigest() != patch_digest
     ):
         raise RuntimeError(
             "Repository changed after the application audit event; transaction remains "
@@ -1980,7 +1987,17 @@ def _revert_proposal_locked(
                     "Recovery status: manual_intervention_required."
                 ) from exc
             forward = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
-            if forward.returncode != 0 or not _tracked_status(root):
+            if (
+                forward.returncode != 0
+                or _tracked_status(root) != before_status
+                or _git_head(root) != initial_head
+                or _target_state_snapshot(root, targets) != baseline_target_state
+                or hashlib.sha256(
+                    _read_regular_file(
+                        proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                    )
+                ).hexdigest() != patch_digest
+            ):
                 raise RuntimeError(
                     "Reversal audit logging failed and recovery could not be verified. "
                     "Recovery status: manual_intervention_required."
