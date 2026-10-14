@@ -3041,3 +3041,40 @@ def test_incomplete_transaction_preflight_rejects_dangling_journal_symlink(tmp_p
 
     with pytest.raises(PermissionError, match="regular file"):
         _assert_no_incomplete_transaction(root, proposal_id)
+
+
+def test_recover_transaction_refuses_journal_edit_after_intermediate_write(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def write_then_edit_journal(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "recovery_in_progress" and not changed:
+            changed = True
+            journal_path.write_text(
+                journal_path.read_text(encoding="utf-8") + " ",
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(
+        patches, "_write_transaction_journal", write_then_edit_journal
+    )
+    with pytest.raises(
+        PermissionError, match="Recovery journal changed after persistence"
+    ):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'" + chr(10)
+    assert journal_path.read_text(encoding="utf-8").endswith(" ")
