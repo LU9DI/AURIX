@@ -545,8 +545,12 @@ def _transaction_journal_path(workspace: Path, proposal_id: str) -> Path:
         raise PermissionError("AURIX transaction directories must not be symlinks")
     transactions.mkdir(parents=True, exist_ok=True)
     path = transactions / f"{proposal_id}.json"
-    if path.is_symlink():
-        raise PermissionError("AURIX transaction journal must not be a symlink")
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        info = None
+    if info is not None and not stat.S_ISREG(info.st_mode):
+        raise PermissionError("AURIX transaction journal must be a regular file")
     return path
 
 
@@ -554,6 +558,8 @@ def _write_transaction_journal(
     workspace: Path, proposal_id: str, record: dict[str, object]
 ) -> None:
     """Durably replace a journal record; incomplete records require manual recovery."""
+    if not isinstance(record, dict) or record.get("proposal_id") != proposal_id:
+        raise ValueError("Transaction journal identity must match its proposal ID")
     path = _transaction_journal_path(workspace, proposal_id)
     payload = (
         json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
