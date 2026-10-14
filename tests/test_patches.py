@@ -1724,7 +1724,7 @@ def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeyp
         apply_proposal(root, proposal_id, confirm=True)
 
     assert injected is True
-    # The proposal's change was reversed, while the independent write remains.
+    # The proposal was not applied; preserve the external write and require manual recovery.
     assert (root / "app.py").read_text(encoding="utf-8") == (
         "value = 'old'\n# concurrent edit\n"
     )
