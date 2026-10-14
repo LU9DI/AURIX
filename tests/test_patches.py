@@ -1701,7 +1701,7 @@ def test_apply_detects_same_target_edit_racing_git_apply(tmp_path, monkeypatch):
 
 
 def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeypatch):
-    """A write after the final preflight must not be erased by automatic rollback."""
+    """A target edit racing the final preflight must be preserved for manual recovery."""
     from aurix.tools import patches
 
     root, proposal_id = make_repo(tmp_path)
@@ -1720,7 +1720,7 @@ def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeyp
         return original_git(workspace, args, patch=patch)
 
     monkeypatch.setattr(patches, "_git", edit_target_before_apply)
-    with pytest.raises(RuntimeError, match="final tracked status differs from expectation"):
+    with pytest.raises(RuntimeError, match="Patch application failed"):
         apply_proposal(root, proposal_id, confirm=True)
 
     assert injected is True
@@ -1733,7 +1733,7 @@ def test_apply_preserves_external_target_edit_racing_git_apply(tmp_path, monkeyp
             encoding="utf-8"
         )
     )
-    assert journal["state"] == "patch_applied"
+    assert journal["state"] == "applying"
     inventory = inspect_transactions(root)
     row = next(item for item in inventory["transactions"] if item["proposal_id"] == proposal_id)
     assert row["status"] == "manual_intervention_required"
