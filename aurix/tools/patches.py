@@ -1956,6 +1956,22 @@ def _revert_proposal_locked(
             state="reverting", updated_at=time.time(), recovery="pending_verification"
         )
         _write_transaction_journal(root, proposal_id, transaction)
+    else:
+        # Older proposals may predate transaction journals. Create a durable
+        # recovery record before mutating them so race/failure paths are still
+        # inspectable instead of leaving an unjournaled partial reversal.
+        transaction = {
+            "schema_version": 1,
+            "proposal_id": proposal_id,
+            "patch_sha256": patch_digest,
+            "base_commit": initial_head,
+            "targets": sorted(set(targets)),
+            "state": "reverting",
+            "updated_at": time.time(),
+            "recovery": "pending_verification",
+            "reason": "Journal created while reverting a legacy proposal",
+        }
+        _write_transaction_journal(root, proposal_id, transaction)
     # Journal persistence is a separate filesystem operation: an external editor
     # can modify a target while it is being written. Revalidate the exact state
     # before running the inverse patch, rather than relying only on the earlier
