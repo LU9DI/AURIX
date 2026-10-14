@@ -373,3 +373,21 @@ def test_audit_append_detects_external_append_between_read_and_write(tmp_path, m
     assert raced
     assert log.read_bytes().endswith(b'{}\n')
     assert not (tmp_path / ".aurix" / "audit.lock").exists()
+
+
+
+def test_first_audit_append_syncs_directory_entries(tmp_path, monkeypatch):
+    synced = []
+    original_fsync_directory = provenance._fsync_directory
+
+    def record_sync(path):
+        synced.append(path)
+        original_fsync_directory(path)
+
+    monkeypatch.setattr(provenance, "_fsync_directory", record_sync)
+    append_audit_event(tmp_path, "proposal_created", "abcdef123456")
+
+    metadata = tmp_path / ".aurix"
+    assert synced.count(metadata) >= 3  # lock creation, log creation, lock removal
+    assert (metadata / "audit.jsonl").read_bytes().endswith(b"\\n")
+    assert not (metadata / "audit.lock").exists()
