@@ -2974,3 +2974,15 @@ def test_recover_transaction_accepts_verified_base_after_git_reports_rollback_fa
     final = json.loads(journal_path.read_text(encoding="utf-8"))
     assert final["state"] == "rolled_back"
     assert final["recovery"] == "verified"
+
+
+def test_incomplete_transaction_preflight_rejects_dangling_journal_symlink(tmp_path):
+    from aurix.tools.patches import _assert_no_incomplete_transaction
+
+    root, proposal_id = make_repo(tmp_path)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal_path.parent.mkdir(parents=True, exist_ok=True)
+    journal_path.symlink_to(root / "missing-journal-target.json")
+
+    with pytest.raises(PermissionError, match="regular file"):
+        _assert_no_incomplete_transaction(root, proposal_id)
