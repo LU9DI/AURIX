@@ -3140,3 +3140,34 @@ def test_finalize_recovery_refuses_journal_edit_after_terminal_write(
     assert "transaction_recovery_finalized" not in audit_events
     assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'" + chr(10)
     assert journal_path.read_text(encoding="utf-8").endswith(" ")
+
+
+
+def test_workspace_operation_lock_rejects_path_replacement_during_acquisition(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, _ = make_repo(tmp_path)
+    lock_path = root / ".aurix" / "operation.lock"
+    real_fsync = patches.os.fsync
+    replaced = False
+
+    def replace_lock_after_file_sync(fd):
+        nonlocal replaced
+        result = real_fsync(fd)
+        if not replaced:
+            replaced = True
+            lock_path.unlink()
+            lock_path.write_text("external lock evidence", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(patches.os, "fsync", replace_lock_after_file_sync)
+    with pytest.raises(
+        PermissionError, match="Workspace operation lock changed during acquisition"
+    ):
+        with patches._workspace_operation_lock(root):
+            pytest.fail("must not enter critical section after lock replacement")
+
+    assert replaced
+    assert lock_path.read_text(encoding="utf-8") == "external lock evidence"
