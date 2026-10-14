@@ -2028,50 +2028,7 @@ def _revert_proposal_locked(
             "transaction": "reverted_and_audited",
             "recovery_status": "verified",
         }
-    # A successful reverse must restore a clean tracked worktree. The original
-    # apply operation requires a clean worktree, so any residual tracked diff means
-    # an external edit raced with reversal or the recorded state was not exact.
-    # Do not reapply the proposal automatically: that could overwrite or obscure
-    # the concurrent edit. Preserve the non-terminal journal for manual review.
-    if after_status:
-        raise RuntimeError(
-            "Reversal left tracked changes behind; transaction remains non-terminal. "
-            "Recovery status: manual_intervention_required."
-        )
-    try:
-        append_audit_event(
-            root,
-            "proposal_reverted",
-            proposal_id,
-            {
-                "files": "tracked patch targets",
-                "patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
-                "recovery_status": "verified",
-            },
-        )
-    except Exception as exc:
-        forward_check = _git(root, ["apply", "--check", "--whitespace=error", "-"], patch=patch)
-        if forward_check.returncode != 0:
-            raise RuntimeError(
-                "Reversal audit logging failed and forward recovery is unsafe. "
-                "Recovery status: manual_intervention_required."
-            ) from exc
-        forward = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
-        if forward.returncode != 0 or _tracked_status(root) != before_status:
-            raise RuntimeError(
-                "Reversal audit logging failed and recovery could not be verified. "
-                "Recovery status: manual_intervention_required."
-            ) from exc
-        restore_applied_journal()
-        raise RuntimeError("Reversal audit logging failed; original patch was restored") from exc
-    mark_reverted_and_audited()
-    return {
-        "proposal_id": proposal_id,
-        "status": "reverted",
-        "files": "tracked patch targets",
-        "transaction": "reverted_and_audited",
-        "recovery_status": "verified",
-    }
+
 
 
 def apply_proposal(
