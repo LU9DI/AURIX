@@ -1958,6 +1958,7 @@ def _revert_proposal_locked(
 
     after_status = _tracked_status(root)
     if not after_status:
+        reverted_target_state = _target_state_snapshot(root, targets)
         try:
             append_audit_event(
                 root,
@@ -1988,6 +1989,20 @@ def _revert_proposal_locked(
             raise RuntimeError(
                 "Reversal audit logging failed; original patch was restored"
             ) from exc
+        current_proposal = _read_regular_file(
+            proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+        )
+        if (
+            _git_head(root) != initial_head
+            or _tracked_status(root)
+            or _target_state_snapshot(root, targets) != reverted_target_state
+            or hashlib.sha256(current_proposal).hexdigest() != patch_digest
+        ):
+            raise RuntimeError(
+                "Repository or patch changed during reversal audit persistence; "
+                "transaction remains non-terminal. "
+                "Recovery status: manual_intervention_required."
+            )
         mark_reverted_and_audited()
         return {
             "proposal_id": proposal_id,
