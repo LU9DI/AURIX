@@ -240,7 +240,7 @@ def _append_audit_event_locked(
     metadata.mkdir(parents=True, exist_ok=True)
     log = metadata / "audit.jsonl"
     previous = "0" * 64
-    log_identity: tuple[int, int] | None = None
+    log_identity: tuple[int, int, int] | None = None
     read_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         read_fd = os.open(log, read_flags)
@@ -256,7 +256,7 @@ def _append_audit_event_locked(
             os.close(read_fd)
             raise ValueError("Audit log is not a bounded regular file")
         with os.fdopen(read_fd, "rb") as stream:
-            log_identity = (info.st_dev, info.st_ino)
+            log_identity = (info.st_dev, info.st_ino, info.st_size)
             raw_data = stream.read(10_000_001)
             if len(raw_data) > 10_000_000:
                 raise ValueError("Audit log is not a bounded regular file")
@@ -301,7 +301,9 @@ def _append_audit_event_locked(
         append_stat = os.fstat(fd)
         if not stat.S_ISREG(append_stat.st_mode):
             raise PermissionError("Audit log must be a regular file")
-        if log_identity is not None and (append_stat.st_dev, append_stat.st_ino) != log_identity:
+        if log_identity is not None and (
+            append_stat.st_dev, append_stat.st_ino, append_stat.st_size
+        ) != log_identity:
             raise PermissionError("Audit log changed during append; refusing operation")
         if log_identity is None and append_stat.st_size != 0:
             raise PermissionError("Audit log appeared during append; refusing operation")
