@@ -2650,3 +2650,41 @@ def test_finalize_recovery_downgrades_if_external_edit_races_with_audit(
     final = json.loads(journal_path.read_text(encoding="utf-8"))
     assert final["state"] == "recovery_interrupted"
     assert final["recovery"] == "manual_intervention_required"
+
+
+def test_recover_transaction_rechecks_repository_after_journal_persistence(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def write_then_edit(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "recovery_in_progress" and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# recovery preflight race" + chr(10),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", write_then_edit)
+    with pytest.raises(PermissionError, match="changed after recovery journal persistence"):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'new'" + chr(10) + "# recovery preflight race" + chr(10)
+    )
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "recovery_interrupted"
+    assert final["recovery"] == "manual_intervention_required"
