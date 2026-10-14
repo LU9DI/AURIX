@@ -391,3 +391,18 @@ def test_first_audit_append_syncs_directory_entries(tmp_path, monkeypatch):
     assert synced.count(metadata) >= 3  # lock creation, log creation, lock removal
     assert (metadata / "audit.jsonl").read_bytes().endswith(bytes([10]))
     assert not (metadata / "audit.lock").exists()
+
+
+
+def test_audit_lock_fsync_failure_cleans_up_without_appending(tmp_path, monkeypatch):
+    def fail_fsync(_fd):
+        raise OSError("simulated lock durability failure")
+
+    monkeypatch.setattr(provenance.os, "fsync", fail_fsync)
+
+    with pytest.raises(OSError, match="lock durability failure"):
+        append_audit_event(tmp_path, "proposal_created", "abcdef123456")
+
+    metadata = tmp_path / ".aurix"
+    assert not (metadata / "audit.lock").exists()
+    assert not (metadata / "audit.jsonl").exists()
