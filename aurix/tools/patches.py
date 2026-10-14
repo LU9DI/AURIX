@@ -1243,7 +1243,7 @@ def recover_transaction(
         # changing the journal immediately afterward. Bind the next source mutation
         # to the exact intermediate record we intended to persist.
         expected_journal_bytes = (
-            json.dumps(journal, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\\n"
+            json.dumps(journal, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
         ).encode("utf-8")
         try:
             persisted_journal_bytes = _read_regular_file(
@@ -1513,7 +1513,7 @@ def finalize_interrupted_recovery(
         # Do not append a terminal audit event if an external editor replaced the
         # journal after our atomic write. Preserve that external evidence for review.
         expected_journal_bytes = (
-            json.dumps(journal, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\\n"
+            json.dumps(journal, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
         ).encode("utf-8")
         try:
             persisted_journal_bytes = _read_regular_file(
