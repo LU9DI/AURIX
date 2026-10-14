@@ -354,7 +354,12 @@ def _journal_snapshot(root: Path) -> dict[str, str]:
         return snapshot
     if not transactions.is_dir():
         raise PermissionError("AURIX transaction path is not a directory")
-    for path in sorted(transactions.iterdir()):
+    # Directory enumeration and per-file reads are separate operations. Detect
+    # additions/removals or replacement of the directory while the inventory is
+    # being assembled, rather than returning a potentially mixed snapshot.
+    before = transactions.stat()
+    entries = sorted(transactions.iterdir())
+    for path in entries:
         if path.suffix != ".json":
             continue
         if path.is_symlink() or not path.is_file():
@@ -362,6 +367,17 @@ def _journal_snapshot(root: Path) -> dict[str, str]:
         snapshot[path.name] = hashlib.sha256(
             _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal")
         ).hexdigest()
+    after = transactions.stat()
+    identity_before = (
+        before.st_dev, before.st_ino, before.st_mtime_ns, before.st_ctime_ns
+    )
+    identity_after = (
+        after.st_dev, after.st_ino, after.st_mtime_ns, after.st_ctime_ns
+    )
+    if identity_before != identity_after:
+        raise PermissionError(
+            "Transaction journal inventory changed while being snapshotted"
+        )
     return snapshot
 
 
