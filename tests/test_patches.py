@@ -1713,7 +1713,7 @@ def test_apply_detects_head_change_racing_git_apply(tmp_path, monkeypatch):
         nonlocal injected
         if args == ["apply", "--whitespace=error", "-"] and patch is not None and not injected:
             injected = True
-            (root / "external.py").write_text("external = True\\n", encoding="utf-8")
+            (root / "external.py").write_text("external = True\n", encoding="utf-8")
             subprocess.run(
                 ["git", "-C", str(root), "add", "external.py"],
                 check=True,
@@ -1731,8 +1731,8 @@ def test_apply_detects_head_change_racing_git_apply(tmp_path, monkeypatch):
         apply_proposal(root, proposal_id, confirm=True)
 
     assert injected is True
-    assert (root / "external.py").read_text(encoding="utf-8") == "external = True\\n"
-    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\\n"
+    assert (root / "external.py").read_text(encoding="utf-8") == "external = True\n"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'\n"
     journal = json.loads(
         (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
             encoding="utf-8"
