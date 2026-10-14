@@ -1856,8 +1856,12 @@ def _revert_proposal_locked(
     _assert_no_incomplete_transaction(root, proposal_id)
     initial_head = _git_head(root)
     proposal = _proposal_path(root, proposal_id)
-    patch = _read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal").decode("utf-8")
-    _validate_patch(root, patch)
+    proposal_bytes = _read_regular_file(
+        proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+    )
+    patch = proposal_bytes.decode("utf-8")
+    patch_digest = hashlib.sha256(proposal_bytes).hexdigest()
+    targets = _validate_patch(root, patch)
     inside = _git(root, ["rev-parse", "--show-toplevel"])
     if inside.returncode != 0 or Path(inside.stdout.strip()).resolve() != root:
         raise ValueError("Workspace must be the Git repository root")
@@ -1872,6 +1876,9 @@ def _revert_proposal_locked(
     before_status = status.stdout.strip()
     if _git_head(root) != initial_head or _tracked_status(root) != before_status:
         raise PermissionError("Repository changed during reversal preflight; refusing to revert")
+    baseline_target_state = _target_state_snapshot(root, targets)
+    if _git_head(root) != initial_head or _tracked_status(root) != before_status:
+        raise PermissionError("Repository changed during reversal target snapshot; refusing to revert")
     journal_path = _transaction_journal_path(root, proposal_id)
     transaction: dict[str, object] | None = None
     if journal_path.exists():
@@ -1894,6 +1901,22 @@ def _revert_proposal_locked(
             state="reverting", updated_at=time.time(), recovery="pending_verification"
         )
         _write_transaction_journal(root, proposal_id, transaction)
+    # Journal persistence is a separate filesystem operation: an external editor
+    # can modify a target while it is being written. Revalidate the exact state
+    # before running the inverse patch, rather than relying only on the earlier
+    # preflight. A remaining race after this check is handled by reconciliation.
+    if (
+        _git_head(root) != initial_head
+        or _tracked_status(root) != before_status
+        or hashlib.sha256(
+            _read_regular_file(proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal")
+        ).hexdigest() != patch_digest
+        or _target_state_snapshot(root, targets) != baseline_target_state
+    ):
+        raise PermissionError(
+            "Repository or patch targets changed after reversal journal persistence; "
+            "manual intervention is required"
+        )
     result = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
     if _git_head(root) != initial_head:
         raise RuntimeError(
