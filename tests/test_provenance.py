@@ -333,3 +333,19 @@ def test_register_proposal_does_not_overwrite_manifest_created_after_precheck(
         register_proposal(tmp_path, proposal, "abcdef123456")
     assert manifest_path.read_bytes() == replacement
     assert not (tmp_path / ".aurix" / "audit.jsonl").exists()
+
+
+
+def test_audit_append_rejects_valid_json_without_trailing_newline(tmp_path):
+    append_audit_event(tmp_path, "proposal_created", "abcdef123456")
+    log = tmp_path / ".aurix" / "audit.jsonl"
+    complete = log.read_bytes()
+    assert complete.endswith(b"\\n")
+    log.write_bytes(complete[:-1])
+    before = log.read_bytes()
+
+    with pytest.raises(ValueError, match="incomplete line"):
+        append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+
+    assert log.read_bytes() == before
+    assert not (tmp_path / ".aurix" / "audit.lock").exists()
