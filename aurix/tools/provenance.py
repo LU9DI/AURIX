@@ -257,6 +257,21 @@ def _audit_append_lock(metadata: Path):
             os.fsync(stream.fileno())
         # Make the lock directory entry durable before appending to the audit chain.
         _fsync_directory(metadata, required=True)
+        # A direct metadata writer can replace the pathname after O_EXCL creation.
+        # Do not enter the append critical section unless the visible path still
+        # identifies the inode whose descriptor we created.
+        try:
+            visible_lock = lock_path.lstat()
+        except OSError as exc:
+            raise PermissionError(
+                "Audit append lock changed during acquisition; manual inspection is required"
+            ) from exc
+        if (visible_lock.st_dev, visible_lock.st_ino) != (
+            lock_stat.st_dev, lock_stat.st_ino
+        ):
+            raise PermissionError(
+                "Audit append lock changed during acquisition; manual inspection is required"
+            )
         yield
     finally:
         try:
