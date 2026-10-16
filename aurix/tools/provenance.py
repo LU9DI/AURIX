@@ -260,23 +260,24 @@ def _audit_append_lock(metadata: Path):
             stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
             stream.flush()
             os.fsync(stream.fileno())
-        # Make the lock directory entry durable before appending to the audit chain.
-        _fsync_directory(metadata, required=True)
-        # A direct metadata writer can replace the pathname after O_EXCL creation.
-        # Do not enter the append critical section unless the visible path still
-        # identifies the inode whose descriptor we created.
-        try:
-            visible_lock = lock_path.lstat()
-        except OSError as exc:
-            raise PermissionError(
-                "Audit append lock changed during acquisition; manual inspection is required"
-            ) from exc
-        if (visible_lock.st_dev, visible_lock.st_ino) != (
-            lock_stat.st_dev, lock_stat.st_ino
-        ):
-            raise PermissionError(
-                "Audit append lock changed during acquisition; manual inspection is required"
-            )
+            # Keep the original inode open while checking that the path still
+            # names it, preventing inode reuse from defeating this comparison.
+            # This detects acquisition-time replacement; arbitrary writers can
+            # still race after the check and must not be treated as cooperative.
+            # Make the lock directory entry durable before appending to the audit chain.
+            _fsync_directory(metadata, required=True)
+            try:
+                visible_lock = lock_path.lstat()
+            except OSError as exc:
+                raise PermissionError(
+                    "Audit append lock changed during acquisition; manual inspection is required"
+                ) from exc
+            if (visible_lock.st_dev, visible_lock.st_ino) != (
+                lock_stat.st_dev, lock_stat.st_ino
+            ):
+                raise PermissionError(
+                    "Audit append lock changed during acquisition; manual inspection is required"
+                )
         yield
     finally:
         try:
