@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any
 
 
-def _fsync_directory(path: Path) -> None:
-    """Best-effort persistence of directory-entry changes on supported filesystems."""
+def _fsync_directory(path: Path, *, required: bool = False) -> None:
+    """Persist directory-entry changes, optionally requiring supported fsync to succeed."""
     try:
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         directory_fd = os.open(path, flags)
@@ -29,9 +29,17 @@ def _fsync_directory(path: Path) -> None:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
-    except OSError:
-        # Some platforms/filesystems do not support opening or syncing directories.
-        pass
+    except OSError as exc:
+        # Some platforms/filesystems explicitly do not support directory fsync.
+        # When durability is a prerequisite for entering a critical section, do
+        # not silently swallow actual I/O or permission failures.
+        unsupported = {
+            getattr(__import__("errno"), "EINVAL"),
+            getattr(__import__("errno"), "ENOTSUP", getattr(__import__("errno"), "EINVAL")),
+            getattr(__import__("errno"), "EOPNOTSUPP", getattr(__import__("errno"), "EINVAL")),
+        }
+        if required and exc.errno not in unsupported:
+            raise
 
 
 def _metadata_path(proposal_path: Path) -> Path:
@@ -247,7 +255,7 @@ def _audit_append_lock(metadata: Path):
             stream.flush()
             os.fsync(stream.fileno())
         # Make the lock directory entry durable before appending to the audit chain.
-        _fsync_directory(metadata)
+        _fsync_directory(metadata, required=True)
         yield
     finally:
         try:
