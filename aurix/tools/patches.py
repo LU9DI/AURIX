@@ -166,23 +166,27 @@ def _workspace_operation_lock(workspace: Path):
             # replacement cannot recycle its inode number during acquisition.
             # An external writer can still race after this check; this lock only
             # coordinates AURIX operations that honor the lock protocol.
-            # Persist the directory entry where supported, not only the lock contents.
-            try:
-                directory_fd = os.open(metadata, os.O_RDONLY)
+            # Python's standard Windows file-descriptor API does not expose
+            # portable directory fsync. The lock file is still fsynced there,
+            # but directory-entry durability remains a platform limitation.
+            if os.name != "nt":
+                # Persist the directory entry where supported, not only the lock contents.
                 try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
-            except OSError as exc:
-                # Ignore only filesystems/platforms that explicitly report this
-                # operation as unsupported; propagate real I/O and permission errors.
-                unsupported = {
-                    errno.EINVAL,
-                    getattr(errno, "ENOTSUP", errno.EINVAL),
-                    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
-                }
-                if exc.errno not in unsupported:
-                    raise
+                    directory_fd = os.open(metadata, os.O_RDONLY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+                except OSError as exc:
+                    # Ignore only filesystems that explicitly report this operation
+                    # as unsupported; propagate real I/O and permission errors.
+                    unsupported = {
+                        errno.EINVAL,
+                        getattr(errno, "ENOTSUP", errno.EINVAL),
+                        getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+                    }
+                    if exc.errno not in unsupported:
+                        raise
             try:
                 visible_lock = lock_path.lstat()
             except OSError as exc:
