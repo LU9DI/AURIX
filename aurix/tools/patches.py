@@ -162,38 +162,37 @@ def _workspace_operation_lock(workspace: Path):
             stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
             stream.flush()
             os.fsync(stream.fileno())
-        # An external metadata writer can unlink/replace the pathname after O_EXCL
-        # succeeds. Do not enter the critical section unless the visible lock still
-        # names the inode we created; cleanup below only unlinks that same inode.
-        try:
-            visible_lock = lock_path.lstat()
-        except OSError as exc:
-            raise PermissionError(
-                "Workspace operation lock changed during acquisition; manual inspection is required"
-            ) from exc
-        if (visible_lock.st_dev, visible_lock.st_ino) != (stat.st_dev, stat.st_ino):
-            raise PermissionError(
-                "Workspace operation lock changed during acquisition; manual inspection is required"
-            )
-        # Persist the directory entry where supported, not only the lock contents.
-        try:
-            directory_fd = os.open(metadata, os.O_RDONLY)
+            # Keep the original inode open until after the pathname check so a
+            # replacement cannot recycle its inode number during acquisition.
+            # An external writer can still race after this check; this lock only
+            # coordinates AURIX operations that honor the lock protocol.
+            # Persist the directory entry where supported, not only the lock contents.
             try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except OSError as exc:
-            # A failed directory fsync can mean the lock entry is not durable.
-            # Ignore only filesystems/platforms that explicitly report this
-            # operation as unsupported; propagate real I/O and permission errors
-            # before entering the critical section.
-            unsupported = {
-                errno.EINVAL,
-                getattr(errno, "ENOTSUP", errno.EINVAL),
-                getattr(errno, "EOPNOTSUPP", errno.EINVAL),
-            }
-            if exc.errno not in unsupported:
-                raise
+                directory_fd = os.open(metadata, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError as exc:
+                # Ignore only filesystems/platforms that explicitly report this
+                # operation as unsupported; propagate real I/O and permission errors.
+                unsupported = {
+                    errno.EINVAL,
+                    getattr(errno, "ENOTSUP", errno.EINVAL),
+                    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+                }
+                if exc.errno not in unsupported:
+                    raise
+            try:
+                visible_lock = lock_path.lstat()
+            except OSError as exc:
+                raise PermissionError(
+                    "Workspace operation lock changed during acquisition; manual inspection is required"
+                ) from exc
+            if (visible_lock.st_dev, visible_lock.st_ino) != (stat.st_dev, stat.st_ino):
+                raise PermissionError(
+                    "Workspace operation lock changed during acquisition; manual inspection is required"
+                )
         yield
     finally:
         try:
