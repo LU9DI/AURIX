@@ -1,4 +1,5 @@
 from pathlib import Path
+import errno
 import os
 import hashlib
 import json
@@ -3171,3 +3172,27 @@ def test_workspace_operation_lock_rejects_path_replacement_during_acquisition(
 
     assert replaced
     assert lock_path.read_text(encoding="utf-8") == "external lock evidence"
+
+def test_workspace_operation_lock_propagates_directory_fsync_io_error(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    real_fsync = os.fsync
+    calls = 0
+    entered = False
+
+    def fail_directory_fsync(fd):
+        nonlocal calls
+        calls += 1
+        # The first fsync is for the lock file; the second is for its directory.
+        if calls == 2:
+            raise OSError(errno.EIO, "simulated directory fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(patches.os, "fsync", fail_directory_fsync)
+    with pytest.raises(OSError, match="simulated directory fsync failure"):
+        with _workspace_operation_lock(root):
+            entered = True
+
+    assert not entered
+    assert not (root / ".aurix" / "operation.lock").exists()
+
