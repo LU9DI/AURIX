@@ -182,8 +182,18 @@ def _workspace_operation_lock(workspace: Path):
                 os.fsync(directory_fd)
             finally:
                 os.close(directory_fd)
-        except OSError:
-            pass
+        except OSError as exc:
+            # A failed directory fsync can mean the lock entry is not durable.
+            # Ignore only filesystems/platforms that explicitly report this
+            # operation as unsupported; propagate real I/O and permission errors
+            # before entering the critical section.
+            unsupported = {
+                errno.EINVAL,
+                getattr(errno, "ENOTSUP", errno.EINVAL),
+                getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+            }
+            if exc.errno not in unsupported:
+                raise
         yield
     finally:
         try:
