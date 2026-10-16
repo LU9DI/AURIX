@@ -7,6 +7,7 @@ rewrite the entire chain.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -34,9 +35,9 @@ def _fsync_directory(path: Path, *, required: bool = False) -> None:
         # When durability is a prerequisite for entering a critical section, do
         # not silently swallow actual I/O or permission failures.
         unsupported = {
-            getattr(__import__("errno"), "EINVAL"),
-            getattr(__import__("errno"), "ENOTSUP", getattr(__import__("errno"), "EINVAL")),
-            getattr(__import__("errno"), "EOPNOTSUPP", getattr(__import__("errno"), "EINVAL")),
+            errno.EINVAL,
+            getattr(errno, "ENOTSUP", errno.EINVAL),
+            getattr(errno, "EOPNOTSUPP", errno.EINVAL),
         }
         if required and exc.errno not in unsupported:
             raise
