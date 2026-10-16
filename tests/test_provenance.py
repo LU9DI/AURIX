@@ -381,9 +381,9 @@ def test_first_audit_append_syncs_directory_entries(tmp_path, monkeypatch):
     synced = []
     original_fsync_directory = provenance._fsync_directory
 
-    def record_sync(path):
+    def record_sync(path, **kwargs):
         synced.append(path)
-        original_fsync_directory(path)
+        original_fsync_directory(path, **kwargs)
 
     monkeypatch.setattr(provenance, "_fsync_directory", record_sync)
     append_audit_event(tmp_path, "proposal_created", "abcdef123456")
