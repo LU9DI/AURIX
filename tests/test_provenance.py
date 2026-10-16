@@ -485,3 +485,24 @@ def test_manifest_verification_rejects_mutation_during_read(tmp_path, monkeypatc
     with pytest.raises(PermissionError, match="manifest changed during verification"):
         verify_proposal_integrity(proposal, "abcdef123456", proposal_bytes=snapshot)
 
+def test_audit_lock_directory_fsync_io_error_prevents_append(tmp_path, monkeypatch):
+    real_fsync = os.fsync
+    calls = 0
+
+    def fail_directory_fsync(fd):
+        nonlocal calls
+        calls += 1
+        # The first fsync persists the lock file; the second persists its directory entry.
+        if calls == 2:
+            raise OSError(5, "simulated audit lock directory I/O failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(provenance.os, "fsync", fail_directory_fsync)
+
+    with pytest.raises(OSError, match="audit lock directory I/O failure"):
+        append_audit_event(tmp_path, "proposal_created", "abcdef123456")
+
+    metadata = tmp_path / ".aurix"
+    assert not (metadata / "audit.lock").exists()
+    assert not (metadata / "audit.jsonl").exists()
+
