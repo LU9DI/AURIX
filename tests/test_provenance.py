@@ -507,3 +507,24 @@ def test_audit_lock_directory_fsync_io_error_prevents_append(tmp_path, monkeypat
     assert not (metadata / "audit.lock").exists()
     assert not (metadata / "audit.jsonl").exists()
 
+def test_audit_append_lock_rejects_path_replacement_during_acquisition(tmp_path, monkeypatch):
+    metadata = tmp_path / ".aurix"
+    original_fsync_directory = provenance._fsync_directory
+    replacement_lock = metadata / "replacement.lock"
+
+    def replace_lock_after_sync(path, **kwargs):
+        original_fsync_directory(path, **kwargs)
+        lock_path = metadata / "audit.lock"
+        lock_path.unlink()
+        replacement_lock.write_text('{"pid":999,"created_at":1}', encoding="utf-8")
+        replacement_lock.replace(lock_path)
+
+    monkeypatch.setattr(provenance, "_fsync_directory", replace_lock_after_sync)
+    with pytest.raises(PermissionError, match="changed during acquisition"):
+        append_audit_event(tmp_path, "proposal_created", "abcdef123456")
+
+    lock_path = metadata / "audit.lock"
+    assert lock_path.exists()
+    assert json.loads(lock_path.read_text(encoding="utf-8"))["pid"] == 999
+    assert not (metadata / "audit.jsonl").exists()
+
