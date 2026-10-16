@@ -23,6 +23,11 @@ from typing import Any
 
 def _fsync_directory(path: Path, *, required: bool = False) -> None:
     """Persist directory-entry changes, optionally requiring supported fsync to succeed."""
+    # Python's standard Windows file-descriptor API does not provide a portable
+    # directory-fsync operation. The lock file itself is still fsynced; directory
+    # entry durability remains a platform limitation rather than blocking all audit writes.
+    if os.name == "nt":
+        return
     try:
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         directory_fd = os.open(path, flags)
