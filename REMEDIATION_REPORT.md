@@ -37,4 +37,4 @@ Branch: `main`
 
 - Historical archives remain recovery evidence, not the active working source.
 - Original Git commit history cannot be reconstructed from source ZIPs.
-- This remains research software, not production-ready autonomous engineering.
+- The project is in active development (pre-1.0); autonomous output still needs human review.
