@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -380,9 +381,9 @@ def test_first_audit_append_syncs_directory_entries(tmp_path, monkeypatch):
     synced = []
     original_fsync_directory = provenance._fsync_directory
 
-    def record_sync(path):
+    def record_sync(path, **kwargs):
         synced.append(path)
-        original_fsync_directory(path)
+        original_fsync_directory(path, **kwargs)
 
     monkeypatch.setattr(provenance, "_fsync_directory", record_sync)
     append_audit_event(tmp_path, "proposal_created", "abcdef123456")
@@ -406,3 +407,124 @@ def test_audit_lock_fsync_failure_cleans_up_without_appending(tmp_path, monkeypa
     metadata = tmp_path / ".aurix"
     assert not (metadata / "audit.lock").exists()
     assert not (metadata / "audit.jsonl").exists()
+
+def test_audit_append_lock_closes_descriptor_if_fstat_fails(tmp_path, monkeypatch):
+    real_close = provenance.os.close
+    closed = []
+
+    def fail_fstat(_fd):
+        raise OSError("simulated fstat failure")
+
+    def track_close(fd):
+        closed.append(fd)
+        return real_close(fd)
+
+    monkeypatch.setattr(provenance.os, "fstat", fail_fstat)
+    monkeypatch.setattr(provenance.os, "close", track_close)
+
+    with pytest.raises(OSError, match="simulated fstat failure"):
+        append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+
+    assert (tmp_path / ".aurix" / "audit.lock").is_file()
+    assert len(closed) == 1
+
+def test_audit_append_refuses_log_changed_during_snapshot(tmp_path, monkeypatch):
+    append_audit_event(tmp_path, "proposal_reviewed", "abcdef123456")
+    real_fstat = provenance.os.fstat
+    calls = 0
+
+    def mutate_snapshot(fd):
+        nonlocal calls
+        result = real_fstat(fd)
+        calls += 1
+        if calls == 2:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                st_dev=result.st_dev,
+                st_ino=result.st_ino,
+                st_size=result.st_size,
+                st_mode=result.st_mode,
+                st_mtime_ns=result.st_mtime_ns,
+                st_ctime_ns=result.st_ctime_ns + 1,
+            )
+        return result
+
+    monkeypatch.setattr(provenance.os, "fstat", mutate_snapshot)
+    with pytest.raises(PermissionError, match="changed while being read"):
+        provenance._append_audit_event_locked(tmp_path, "proposal_reviewed", "abcdef123456")
+
+def test_manifest_verification_rejects_mutation_during_read(tmp_path, monkeypatch):
+    proposal_dir = tmp_path / ".aurix" / "proposals"
+    proposal_dir.mkdir(parents=True)
+    proposal = proposal_dir / "abcdef123456.diff"
+    proposal.write_text("diff --git a/a b/a\n", encoding="utf-8")
+    register_proposal(tmp_path, proposal, "abcdef123456")
+    snapshot = proposal.read_bytes()
+
+    real_fstat = provenance.os.fstat
+    calls = 0
+
+    def mutate_manifest_snapshot(fd):
+        nonlocal calls
+        result = real_fstat(fd)
+        calls += 1
+        if calls == 2:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                st_dev=result.st_dev,
+                st_ino=result.st_ino,
+                st_size=result.st_size,
+                st_mode=result.st_mode,
+                st_mtime_ns=result.st_mtime_ns,
+                st_ctime_ns=result.st_ctime_ns + 1,
+            )
+        return result
+
+    monkeypatch.setattr(provenance.os, "fstat", mutate_manifest_snapshot)
+    with pytest.raises(PermissionError, match="manifest changed during verification"):
+        verify_proposal_integrity(proposal, "abcdef123456", proposal_bytes=snapshot)
+
+def test_audit_lock_directory_fsync_io_error_prevents_append(tmp_path, monkeypatch):
+    real_fsync = os.fsync
+    calls = 0
+
+    def fail_directory_fsync(fd):
+        nonlocal calls
+        calls += 1
+        # The first fsync persists the lock file; the second persists its directory entry.
+        if calls == 2:
+            raise OSError(5, "simulated audit lock directory I/O failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(provenance.os, "fsync", fail_directory_fsync)
+
+    with pytest.raises(OSError, match="audit lock directory I/O failure"):
+        append_audit_event(tmp_path, "proposal_created", "abcdef123456")
+
+    metadata = tmp_path / ".aurix"
+    assert not (metadata / "audit.lock").exists()
+    assert not (metadata / "audit.jsonl").exists()
+
+def test_audit_append_lock_rejects_path_replacement_during_acquisition(tmp_path, monkeypatch):
+    metadata = tmp_path / ".aurix"
+    original_fsync_directory = provenance._fsync_directory
+    replacement_lock = metadata / "replacement.lock"
+
+    def replace_lock_after_sync(path, **kwargs):
+        original_fsync_directory(path, **kwargs)
+        lock_path = metadata / "audit.lock"
+        lock_path.unlink()
+        replacement_lock.write_text('{"pid":999,"created_at":1}', encoding="utf-8")
+        replacement_lock.replace(lock_path)
+
+    monkeypatch.setattr(provenance, "_fsync_directory", replace_lock_after_sync)
+    with pytest.raises(PermissionError, match="changed during acquisition"):
+        append_audit_event(tmp_path, "proposal_created", "abcdef123456")
+
+    lock_path = metadata / "audit.lock"
+    assert lock_path.exists()
+    assert json.loads(lock_path.read_text(encoding="utf-8"))["pid"] == 999
+    assert not (metadata / "audit.jsonl").exists()
+

@@ -7,6 +7,7 @@ rewrite the entire chain.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -20,8 +21,13 @@ from pathlib import Path
 from typing import Any
 
 
-def _fsync_directory(path: Path) -> None:
-    """Best-effort persistence of directory-entry changes on supported filesystems."""
+def _fsync_directory(path: Path, *, required: bool = False) -> None:
+    """Persist directory-entry changes, optionally requiring supported fsync to succeed."""
+    # Python's standard Windows file-descriptor API does not provide a portable
+    # directory-fsync operation. The lock file itself is still fsynced; directory
+    # entry durability remains a platform limitation rather than blocking all audit writes.
+    if os.name == "nt":
+        return
     try:
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         directory_fd = os.open(path, flags)
@@ -29,9 +35,17 @@ def _fsync_directory(path: Path) -> None:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
-    except OSError:
-        # Some platforms/filesystems do not support opening or syncing directories.
-        pass
+    except OSError as exc:
+        # Some platforms/filesystems explicitly do not support directory fsync.
+        # When durability is a prerequisite for entering a critical section, do
+        # not silently swallow actual I/O or permission failures.
+        unsupported = {
+            errno.EINVAL,
+            getattr(errno, "ENOTSUP", errno.EINVAL),
+            getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+        }
+        if required and exc.errno not in unsupported:
+            raise
 
 
 def _metadata_path(proposal_path: Path) -> Path:
@@ -163,7 +177,22 @@ def verify_proposal_integrity(
             manifest_stat = os.fstat(stream.fileno())
             if not stat.S_ISREG(manifest_stat.st_mode) or manifest_stat.st_size > 16_384:
                 raise PermissionError("Unsafe proposal manifest")
+            if (manifest_stat.st_dev, manifest_stat.st_ino) != (
+                entry_stat.st_dev, entry_stat.st_ino
+            ):
+                raise PermissionError("Proposal manifest changed during verification")
             manifest_bytes = stream.read(16_385)
+            after_read = os.fstat(stream.fileno())
+            stable_before = (
+                manifest_stat.st_dev, manifest_stat.st_ino, manifest_stat.st_size,
+                manifest_stat.st_mtime_ns, manifest_stat.st_ctime_ns
+            )
+            stable_after = (
+                after_read.st_dev, after_read.st_ino, after_read.st_size,
+                after_read.st_mtime_ns, after_read.st_ctime_ns
+            )
+            if stable_before != stable_after or len(manifest_bytes) != after_read.st_size:
+                raise PermissionError("Proposal manifest changed during verification")
             if len(manifest_bytes) > 16_384:
                 raise PermissionError("Unsafe proposal manifest")
         manifest = json.loads(
@@ -220,14 +249,35 @@ def _audit_append_lock(metadata: Path):
             "Audit append is already running, or a previous append left a stale lock; "
             "inspect the audit log before removing it"
         ) from exc
-    lock_stat = os.fstat(fd)
+    try:
+        lock_stat = os.fstat(fd)
+    except BaseException:
+        # Keep an unverified lock path for manual inspection, but never leak its fd.
+        os.close(fd)
+        raise
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
             stream.flush()
             os.fsync(stream.fileno())
-        # Make the lock directory entry durable before appending to the audit chain.
-        _fsync_directory(metadata)
+            # Keep the original inode open while checking that the path still
+            # names it, preventing inode reuse from defeating this comparison.
+            # This detects acquisition-time replacement; arbitrary writers can
+            # still race after the check and must not be treated as cooperative.
+            # Make the lock directory entry durable before appending to the audit chain.
+            _fsync_directory(metadata, required=True)
+            try:
+                visible_lock = lock_path.lstat()
+            except OSError as exc:
+                raise PermissionError(
+                    "Audit append lock changed during acquisition; manual inspection is required"
+                ) from exc
+            if (visible_lock.st_dev, visible_lock.st_ino) != (
+                lock_stat.st_dev, lock_stat.st_ino
+            ):
+                raise PermissionError(
+                    "Audit append lock changed during acquisition; manual inspection is required"
+                )
         yield
     finally:
         try:
@@ -257,7 +307,7 @@ def _append_audit_event_locked(
     metadata.mkdir(parents=True, exist_ok=True)
     log = metadata / "audit.jsonl"
     previous = "0" * 64
-    log_identity: tuple[int, int, int] | None = None
+    log_identity: tuple[int, int, int, int, int] | None = None
     read_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         read_fd = os.open(log, read_flags)
@@ -268,13 +318,27 @@ def _append_audit_event_locked(
             raise PermissionError("Audit log must not be a symlink") from exc
         raise ValueError("Audit log is unreadable") from exc
     else:
-        info = os.fstat(read_fd)
+        try:
+            info = os.fstat(read_fd)
+        except BaseException:
+            os.close(read_fd)
+            raise
         if not stat.S_ISREG(info.st_mode) or info.st_size > 10_000_000:
             os.close(read_fd)
             raise ValueError("Audit log is not a bounded regular file")
         with os.fdopen(read_fd, "rb") as stream:
-            log_identity = (info.st_dev, info.st_ino, info.st_size)
             raw_data = stream.read(10_000_001)
+            after_read = os.fstat(stream.fileno())
+            stable_before = (
+                info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+            )
+            stable_after = (
+                after_read.st_dev, after_read.st_ino, after_read.st_size,
+                after_read.st_mtime_ns, after_read.st_ctime_ns
+            )
+            if stable_before != stable_after or len(raw_data) != after_read.st_size:
+                raise PermissionError("Audit log changed while being read; refusing append")
+            log_identity = stable_after
             if len(raw_data) > 10_000_000:
                 raise ValueError("Audit log is not a bounded regular file")
         # A JSONL record must end with a newline. Otherwise the next O_APPEND
@@ -319,7 +383,8 @@ def _append_audit_event_locked(
         if not stat.S_ISREG(append_stat.st_mode):
             raise PermissionError("Audit log must be a regular file")
         if log_identity is not None and (
-            append_stat.st_dev, append_stat.st_ino, append_stat.st_size
+            append_stat.st_dev, append_stat.st_ino, append_stat.st_size,
+            append_stat.st_mtime_ns, append_stat.st_ctime_ns
         ) != log_identity:
             raise PermissionError("Audit log changed during append; refusing operation")
         if log_identity is None and append_stat.st_size != 0:

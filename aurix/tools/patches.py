@@ -6,6 +6,7 @@ modified; the Git worktree must be clean before application.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -148,21 +149,54 @@ def _workspace_operation_lock(workspace: Path):
             "Another AURIX patch operation holds the workspace lock, or a previous "
             "operation left a stale lock; inspect repository state before removing it"
         ) from exc
-    stat = os.fstat(fd)
+    try:
+        stat = os.fstat(fd)
+    except BaseException:
+        # The descriptor is ours, but without a successful fstat we cannot prove
+        # that the path still names this inode. Close the descriptor and leave the
+        # lock in place for manual inspection rather than unlinking an unverified path.
+        os.close(fd)
+        raise
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(json.dumps({"pid": os.getpid(), "created_at": time.time()}))
             stream.flush()
             os.fsync(stream.fileno())
-        # Persist the directory entry where supported, not only the lock contents.
-        try:
-            directory_fd = os.open(metadata, os.O_RDONLY)
+            # Keep the original inode open until after the pathname check so a
+            # replacement cannot recycle its inode number during acquisition.
+            # An external writer can still race after this check; this lock only
+            # coordinates AURIX operations that honor the lock protocol.
+            # Python's standard Windows file-descriptor API does not expose
+            # portable directory fsync. The lock file is still fsynced there,
+            # but directory-entry durability remains a platform limitation.
+            if os.name != "nt":
+                # Persist the directory entry where supported, not only the lock contents.
+                try:
+                    directory_fd = os.open(metadata, os.O_RDONLY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+                except OSError as exc:
+                    # Ignore only filesystems that explicitly report this operation
+                    # as unsupported; propagate real I/O and permission errors.
+                    unsupported = {
+                        errno.EINVAL,
+                        getattr(errno, "ENOTSUP", errno.EINVAL),
+                        getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+                    }
+                    if exc.errno not in unsupported:
+                        raise
             try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except OSError:
-            pass
+                visible_lock = lock_path.lstat()
+            except OSError as exc:
+                raise PermissionError(
+                    "Workspace operation lock changed during acquisition; manual inspection is required"
+                ) from exc
+            if (visible_lock.st_dev, visible_lock.st_ino) != (stat.st_dev, stat.st_ino):
+                raise PermissionError(
+                    "Workspace operation lock changed during acquisition; manual inspection is required"
+                )
         yield
     finally:
         try:
@@ -202,8 +236,10 @@ def inspect_operation_lock(workspace: Path | str) -> dict[str, object]:
     try:
         if info.st_size > 4096:
             raise ValueError("lock record exceeds size limit")
-        record = json.loads(
-            lock_path.read_text(encoding="utf-8"), object_pairs_hook=_reject_duplicate_json_keys
+        record = _load_strict_json(
+            _read_regular_file(
+                lock_path, max_bytes=4096, label="Operation lock"
+            ).decode("utf-8")
         )
         if (
             not isinstance(record, dict)
@@ -319,6 +355,15 @@ def _read_regular_file(path: Path, *, max_bytes: int, label: str) -> bytes:
             chunks.append(chunk)
             remaining -= len(chunk)
         payload = b"".join(chunks)
+        after = os.fstat(fd)
+        identity_before = (
+            info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+        )
+        identity_after = (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns
+        )
+        if identity_before != identity_after or len(payload) != after.st_size:
+            raise PermissionError(f"{label} changed while being read")
         if len(payload) > max_bytes:
             raise ValueError(f"{label} exceeds size limit")
         return payload
@@ -335,7 +380,12 @@ def _journal_snapshot(root: Path) -> dict[str, str]:
         return snapshot
     if not transactions.is_dir():
         raise PermissionError("AURIX transaction path is not a directory")
-    for path in sorted(transactions.iterdir()):
+    # Directory enumeration and per-file reads are separate operations. Detect
+    # additions/removals or replacement of the directory while the inventory is
+    # being assembled, rather than returning a potentially mixed snapshot.
+    before = transactions.stat()
+    entries = sorted(transactions.iterdir())
+    for path in entries:
         if path.suffix != ".json":
             continue
         if path.is_symlink() or not path.is_file():
@@ -343,6 +393,17 @@ def _journal_snapshot(root: Path) -> dict[str, str]:
         snapshot[path.name] = hashlib.sha256(
             _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal")
         ).hexdigest()
+    after = transactions.stat()
+    identity_before = (
+        before.st_dev, before.st_ino, before.st_mtime_ns, before.st_ctime_ns
+    )
+    identity_after = (
+        after.st_dev, after.st_ino, after.st_mtime_ns, after.st_ctime_ns
+    )
+    if identity_before != identity_after:
+        raise PermissionError(
+            "Transaction journal inventory changed while being snapshotted"
+        )
     return snapshot
 
 
@@ -364,10 +425,17 @@ def _load_strict_json(payload: str) -> object:
 def create_recovery_anchor(workspace: Path | str, anchor_path: Path | str) -> dict[str, object]:
     """Create an explicit external snapshot of transaction journals after validation."""
     root, anchor = _external_anchor_path(workspace, anchor_path)
+    # Bind validation to the exact journal inventory being anchored. A mutation
+    # between validation and hashing must not become a trusted external baseline.
+    before = _journal_snapshot(root)
     report = verify_recovery_histories(root)
     if report["invalid"]:
         raise PermissionError("Cannot anchor invalid recovery journals; resolve them first")
     snapshot = _journal_snapshot(root)
+    if before != snapshot:
+        raise PermissionError(
+            "Transaction journals changed during recovery-anchor creation; retry after inspection"
+        )
     payload_obj = {
         "schema_version": 1,
         "algorithm": "sha256",
@@ -545,8 +613,12 @@ def _transaction_journal_path(workspace: Path, proposal_id: str) -> Path:
         raise PermissionError("AURIX transaction directories must not be symlinks")
     transactions.mkdir(parents=True, exist_ok=True)
     path = transactions / f"{proposal_id}.json"
-    if path.is_symlink():
-        raise PermissionError("AURIX transaction journal must not be a symlink")
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        info = None
+    if info is not None and not stat.S_ISREG(info.st_mode):
+        raise PermissionError("AURIX transaction journal must be a regular file")
     return path
 
 
@@ -554,7 +626,17 @@ def _write_transaction_journal(
     workspace: Path, proposal_id: str, record: dict[str, object]
 ) -> None:
     """Durably replace a journal record; incomplete records require manual recovery."""
+    if not isinstance(record, dict) or record.get("proposal_id") != proposal_id:
+        raise ValueError("Transaction journal identity must match its proposal ID")
     path = _transaction_journal_path(workspace, proposal_id)
+    try:
+        existing = path.lstat()
+    except FileNotFoundError:
+        existing = None
+    if existing is not None and (
+        stat.S_ISLNK(existing.st_mode) or not stat.S_ISREG(existing.st_mode)
+    ):
+        raise PermissionError("Existing transaction journal must be a regular file")
     payload = (
         json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
     ).encode("utf-8")
@@ -576,10 +658,17 @@ def _write_transaction_journal(
                 os.fsync(directory_fd)
             finally:
                 os.close(directory_fd)
-        except OSError:
-            # Directory fsync is not supported on every platform; file content
-            # remains fsynced, and the journal is still useful for recovery.
-            pass
+        except OSError as exc:
+            # Ignore only errors that explicitly mean directory fsync is unsupported.
+            # I/O and permission failures must reach the caller: otherwise a transaction
+            # could proceed while its journal rename is not known to be durable.
+            unsupported = {
+                errno.EINVAL,
+                getattr(errno, "ENOTSUP", errno.EINVAL),
+                getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+            }
+            if exc.errno not in unsupported:
+                raise
     finally:
         try:
             temp.unlink()
@@ -590,8 +679,12 @@ def _write_transaction_journal(
 
 def _assert_no_incomplete_transaction(workspace: Path, proposal_id: str) -> None:
     path = _transaction_journal_path(workspace, proposal_id)
-    if not path.exists():
+    try:
+        entry = path.lstat()
+    except FileNotFoundError:
         return
+    if stat.S_ISLNK(entry.st_mode) or not stat.S_ISREG(entry.st_mode):
+        raise PermissionError("Transaction journal must be a regular file")
     try:
         record = _load_strict_json(
                     _read_regular_file(path, max_bytes=1_000_000, label="Transaction journal").decode("utf-8")
@@ -620,12 +713,36 @@ def _verified_lifecycle_audit_events(root: Path) -> tuple[dict[str, tuple[str, s
     if lock_path.exists():
         return {}, "audit append lock exists; active or stale append requires manual review"
     log = metadata / "audit.jsonl"
+    # A descriptor-stable read alone does not prove that the path still names
+    # that inode: a concurrent writer can atomically replace the log while it
+    # is being read. Bind the verified bytes to the directory entry and reject
+    # an append lock appearing across the snapshot.
     try:
+        before = log.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            return {}, "audit log is not a regular file"
         raw = _read_regular_file(log, max_bytes=10_000_000, label="Audit log")
+        after = log.lstat()
+        try:
+            lock_after = lock_path.lstat()
+        except FileNotFoundError:
+            lock_after = None
     except FileNotFoundError:
-        return {}, "audit log is missing"
+        return {}, "audit log is missing or changed during verification"
     except (OSError, PermissionError, ValueError) as exc:
-        return {}, f"audit log is unreadable: {type(exc).__name__}"
+        return {}, f"audit log is unreadable or changed: {type(exc).__name__}"
+    before_identity = (
+        before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns
+    )
+    after_identity = (
+        after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns
+    )
+    if before_identity != after_identity or len(raw) != after.st_size:
+        return {}, "audit log changed during verification"
+    if lock_after is not None:
+        if stat.S_ISLNK(lock_after.st_mode) or not stat.S_ISREG(lock_after.st_mode):
+            return {}, "audit append lock changed during verification"
+        return {}, "audit append lock appeared during verification"
     lines = raw.splitlines()
     if len(lines) > 100_000:
         return {}, "audit log contains too many events"
@@ -1045,11 +1162,10 @@ def recover_transaction(
     with _workspace_operation_lock(root):
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
-            journal = _load_strict_json(
-                _read_regular_file(
-                    journal_path, max_bytes=1_000_000, label="Transaction journal"
-                ).decode("utf-8")
+            journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
             )
+            journal = _load_strict_json(journal_bytes.decode("utf-8"))
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError(
                 "Transaction journal is unreadable; manual recovery is required"
@@ -1059,6 +1175,20 @@ def recover_transaction(
                 "Transaction journal identity is invalid; manual recovery is required"
             )
         _, audit_error = _verified_lifecycle_audit_events(root)
+        # The operation lock excludes other AURIX operations, not direct edits to
+        # local metadata. Do not proceed on a stale in-memory journal snapshot.
+        try:
+            current_journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
+            )
+        except (OSError, ValueError) as exc:
+            raise PermissionError(
+                "Transaction journal changed during recovery preflight; manual recovery is required"
+            ) from exc
+        if current_journal_bytes != journal_bytes:
+            raise PermissionError(
+                "Transaction journal changed during recovery preflight; manual recovery is required"
+            )
         if audit_error is not None:
             raise PermissionError(
                 f"Audit evidence is unavailable or inconsistent; recovery refused: {audit_error}"
@@ -1122,6 +1252,7 @@ def recover_transaction(
             or sorted(diff.stdout.splitlines()) != targets
         ):
             raise PermissionError("Repository changed during recovery preflight")
+        baseline_target_state = _target_state_snapshot(root, targets)
         now = time.time()
         journal.update(
             state="recovery_in_progress",
@@ -1134,23 +1265,97 @@ def recover_transaction(
             },
         )
         _write_transaction_journal(root, proposal_id, journal)
-        rollback = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
-        if rollback.returncode:
+        # The writer's atomic replace does not stop a direct metadata editor from
+        # changing the journal immediately afterward. Bind the next source mutation
+        # to the exact intermediate record we intended to persist.
+        expected_journal_bytes = (
+            json.dumps(journal, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
+        ).encode("utf-8")
+        try:
+            persisted_journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
+            )
+        except (OSError, ValueError) as exc:
+            raise PermissionError(
+                "Recovery journal changed after persistence; manual intervention is required"
+            ) from exc
+        if persisted_journal_bytes != expected_journal_bytes:
+            raise PermissionError(
+                "Recovery journal changed after persistence; manual intervention is required"
+            )
+        # Journal persistence can race with editors just like apply/revert. Recheck
+        # all mutation preconditions after the durable state transition and before
+        # reversing any source file.
+        try:
+            post_journal_proposal_digest = hashlib.sha256(
+                _read_regular_file(
+                    proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                )
+            ).hexdigest()
+            post_journal_status = _git(
+                root, ["status", "--porcelain", "--untracked-files=no"]
+            )
+            post_journal_staged = _git(
+                root, ["diff", "--cached", "--name-only", "--no-renames"]
+            )
+            post_journal_diff = _git(root, ["diff", "--name-only", "--no-renames"])
+            recovery_preconditions_valid = (
+                post_journal_proposal_digest == digest
+                and _git_head(root) == journal.get("base_commit")
+                and post_journal_status.returncode == 0
+                and bool(post_journal_status.stdout.strip())
+                and post_journal_staged.returncode == 0
+                and not post_journal_staged.stdout.strip()
+                and post_journal_diff.returncode == 0
+                and sorted(line for line in post_journal_diff.stdout.splitlines() if line)
+                == targets
+                and _target_state_snapshot(root, targets) == baseline_target_state
+            )
+        except Exception:
+            recovery_preconditions_valid = False
+        if not recovery_preconditions_valid:
             journal.update(
                 state="recovery_interrupted",
                 recovery="manual_intervention_required",
                 updated_at=time.time(),
-                recovery_attempt={
-                    "started_at": now,
-                    "action": "exact_patch_rollback",
-                    "patch_sha256": digest,
-                    "error": rollback.stderr.strip()[:500],
-                },
+                reason="Repository changed after recovery journal persistence",
             )
             _write_transaction_journal(root, proposal_id, journal)
-            raise RuntimeError(
-                "Exact rollback failed; recovery journal preserved for manual intervention"
+            raise PermissionError(
+                "Repository changed after recovery journal persistence; "
+                "manual intervention is required"
             )
+        rollback = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
+        if rollback.returncode:
+            # The process result may be ambiguous if the inverse changed files
+            # before reporting failure. Only continue when the entire tracked
+            # worktree and index independently prove the recorded base state.
+            observed_head = _git_head(root)
+            observed_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+            observed_staged = _git(root, ["diff", "--cached", "--name-only", "--no-renames"])
+            if not (
+                observed_head == journal.get("base_commit")
+                and observed_status.returncode == 0
+                and not observed_status.stdout.strip()
+                and observed_staged.returncode == 0
+                and not observed_staged.stdout.strip()
+            ):
+                journal.update(
+                    state="recovery_interrupted",
+                    recovery="manual_intervention_required",
+                    updated_at=time.time(),
+                    recovery_attempt={
+                        "started_at": now,
+                        "action": "exact_patch_rollback",
+                        "patch_sha256": digest,
+                        "error": rollback.stderr.strip()[:500],
+                    },
+                )
+                _write_transaction_journal(root, proposal_id, journal)
+                raise RuntimeError(
+                    "Exact rollback failed and baseline could not be verified; "
+                    "recovery journal preserved for manual intervention"
+                )
         final_head = _git_head(root)
         final_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
         if (
@@ -1185,6 +1390,7 @@ def recover_transaction(
         )
         journal.pop("recovery_attempt", None)
         _write_transaction_journal(root, proposal_id, journal)
+        audit_error_after_rollback: Exception | None = None
         try:
             append_audit_event(
                 root,
@@ -1193,11 +1399,45 @@ def recover_transaction(
                 {"action": "exact_patch_rollback", "patch_sha256": digest, "result": "verified"},
             )
         except Exception as exc:
-            # The worktree is already verified clean. Keep the journal terminal, but
-            # disclose that the secondary audit event failed rather than misstate it.
+            audit_error_after_rollback = exc
+
+        # Audit persistence and the terminal journal write are both race windows.
+        # Verify the rollback baseline again before reporting a terminal recovery.
+        try:
+            final_proposal_digest = hashlib.sha256(
+                _read_regular_file(
+                    proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                )
+            ).hexdigest()
+            final_head = _git_head(root)
+            final_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+            final_staged = _git(root, ["diff", "--cached", "--name-only", "--no-renames"])
+            baseline_still_valid = (
+                final_proposal_digest == digest
+                and final_head == journal.get("base_commit")
+                and final_status.returncode == 0
+                and not final_status.stdout.strip()
+                and final_staged.returncode == 0
+                and not final_staged.stdout.strip()
+            )
+        except Exception:
+            baseline_still_valid = False
+        if not baseline_still_valid:
+            journal.update(
+                state="recovery_interrupted",
+                recovery="manual_intervention_required",
+                updated_at=time.time(),
+                reason="Repository changed during recovery journal/audit persistence",
+            )
+            _write_transaction_journal(root, proposal_id, journal)
+            raise RuntimeError(
+                "Repository changed during recovery finalization; transaction was "
+                "returned to a non-terminal state. Manual intervention is required."
+            ) from audit_error_after_rollback
+        if audit_error_after_rollback is not None:
             raise RuntimeError(
                 "Rollback verified, but recovery audit event could not be persisted"
-            ) from exc
+            ) from audit_error_after_rollback
         return {
             "proposal_id": proposal_id,
             "status": "recovered",
@@ -1222,11 +1462,10 @@ def finalize_interrupted_recovery(
     with _workspace_operation_lock(root):
         journal_path = _transaction_journal_path(root, proposal_id)
         try:
-            journal = _load_strict_json(
-                _read_regular_file(
-                    journal_path, max_bytes=1_000_000, label="Transaction journal"
-                ).decode("utf-8")
+            journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
             )
+            journal = _load_strict_json(journal_bytes.decode("utf-8"))
         except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
             raise PermissionError(
                 "Transaction journal is unreadable; manual recovery is required"
@@ -1236,6 +1475,20 @@ def finalize_interrupted_recovery(
                 "Transaction journal identity is invalid; manual recovery is required"
             )
         _, audit_error = _verified_lifecycle_audit_events(root)
+        # The operation lock excludes other AURIX operations, not direct edits to
+        # local metadata. Do not proceed on a stale in-memory journal snapshot.
+        try:
+            current_journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
+            )
+        except (OSError, ValueError) as exc:
+            raise PermissionError(
+                "Transaction journal changed during recovery preflight; manual recovery is required"
+            ) from exc
+        if current_journal_bytes != journal_bytes:
+            raise PermissionError(
+                "Transaction journal changed during recovery preflight; manual recovery is required"
+            )
         if audit_error is not None:
             raise PermissionError(
                 f"Audit evidence is unavailable or inconsistent; recovery finalization refused: {audit_error}"
@@ -1283,6 +1536,24 @@ def finalize_interrupted_recovery(
         )
         journal.pop("recovery_attempt", None)
         _write_transaction_journal(root, proposal_id, journal)
+        # Do not append a terminal audit event if an external editor replaced the
+        # journal after our atomic write. Preserve that external evidence for review.
+        expected_journal_bytes = (
+            json.dumps(journal, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
+        ).encode("utf-8")
+        try:
+            persisted_journal_bytes = _read_regular_file(
+                journal_path, max_bytes=1_000_000, label="Transaction journal"
+            )
+        except (OSError, ValueError) as exc:
+            raise PermissionError(
+                "Recovery journal changed after finalization persistence; manual intervention is required"
+            ) from exc
+        if persisted_journal_bytes != expected_journal_bytes:
+            raise PermissionError(
+                "Recovery journal changed after finalization persistence; manual intervention is required"
+            )
+        audit_error_after_finalize: Exception | None = None
         try:
             append_audit_event(
                 root,
@@ -1295,12 +1566,46 @@ def finalize_interrupted_recovery(
                 },
             )
         except Exception as exc:
-            # The source baseline and terminal journal are already verified. Do not
-            # imply that finalization was fully audited when the secondary event failed.
+            audit_error_after_finalize = exc
+
+        # Recheck after both journal and audit persistence; never leave a verified
+        # terminal label if an external writer dirtied the baseline in that window.
+        try:
+            final_digest = hashlib.sha256(
+                _read_regular_file(
+                    proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                )
+            ).hexdigest()
+            final_head = _git_head(root)
+            final_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+            final_staged = _git(root, ["diff", "--cached", "--name-only", "--no-renames"])
+            baseline_still_valid = (
+                final_digest == digest
+                and final_head == base_commit
+                and final_status.returncode == 0
+                and not final_status.stdout.strip()
+                and final_staged.returncode == 0
+                and not final_staged.stdout.strip()
+            )
+        except Exception:
+            baseline_still_valid = False
+        if not baseline_still_valid:
+            journal.update(
+                state="recovery_interrupted",
+                recovery="manual_intervention_required",
+                updated_at=time.time(),
+                reason="Repository changed during recovery-finalization journal/audit persistence",
+            )
+            _write_transaction_journal(root, proposal_id, journal)
+            raise RuntimeError(
+                "Repository changed during recovery finalization; transaction was "
+                "returned to a non-terminal state. Manual intervention is required."
+            ) from audit_error_after_finalize
+        if audit_error_after_finalize is not None:
             raise RuntimeError(
                 "Rollback baseline finalized, but recovery-finalization audit event "
                 "could not be persisted; inspect the audit chain"
-            ) from exc
+            ) from audit_error_after_finalize
         return {
             "proposal_id": proposal_id,
             "status": "finalized",
@@ -1821,14 +2126,21 @@ def _apply_proposal_locked(
     # the repository no longer matches the exact expected patch result.
     post_audit_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
     post_audit_changed = _git(root, ["diff", "--name-only", "--no-renames"])
+    post_audit_staged = _git(root, ["diff", "--cached", "--quiet"])
     post_audit_targets = sorted(
         line for line in post_audit_changed.stdout.splitlines() if line
+    )
+    current_proposal = _read_regular_file(
+        proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
     )
     if (
         post_audit_status.returncode != 0
         or post_audit_changed.returncode != 0
+        or post_audit_staged.returncode != 0
+        or _git_head(root) != initial_head
         or post_audit_targets != sorted(set(targets))
         or _target_state_snapshot(root, targets) != expected_target_state
+        or hashlib.sha256(current_proposal).hexdigest() != patch_digest
     ):
         raise RuntimeError(
             "Repository changed after the application audit event; transaction remains "
@@ -1836,6 +2148,41 @@ def _apply_proposal_locked(
         )
     transaction.update(state="applied_and_audited", updated_at=time.time(), recovery="verified")
     _write_transaction_journal(root, proposal_id, transaction)
+    # Journal persistence itself is another race window: an external writer may
+    # change tracked files while the terminal record is being written.
+    final_status = _git(root, ["status", "--porcelain", "--untracked-files=no"])
+    final_changed = _git(root, ["diff", "--name-only", "--no-renames"])
+    final_staged = _git(root, ["diff", "--cached", "--quiet"])
+    final_proposal = _read_regular_file(
+        proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+    )
+    try:
+        final_state_valid = (
+            final_status.returncode == 0
+            and bool(final_status.stdout.strip())
+            and final_changed.returncode == 0
+            and final_staged.returncode == 0
+            and _git_head(root) == initial_head
+            and sorted(line for line in final_changed.stdout.splitlines() if line)
+            == sorted(set(targets))
+            and _target_state_snapshot(root, targets) == expected_target_state
+            and hashlib.sha256(final_proposal).hexdigest() == patch_digest
+        )
+    except Exception:
+        final_state_valid = False
+    if not final_state_valid:
+        transaction.update(
+            state="patch_applied",
+            updated_at=time.time(),
+            recovery="pending_verification",
+            reason="Repository changed during terminal journal persistence",
+        )
+        _write_transaction_journal(root, proposal_id, transaction)
+        raise RuntimeError(
+            "Repository changed during terminal journal persistence; transaction "
+            "was returned to a non-terminal state. "
+            "Recovery status: manual_intervention_required."
+        )
     return {
         "proposal_id": proposal_id,
         "status": "applied",
@@ -1914,6 +2261,22 @@ def _revert_proposal_locked(
             state="reverting", updated_at=time.time(), recovery="pending_verification"
         )
         _write_transaction_journal(root, proposal_id, transaction)
+    else:
+        # Older proposals may predate transaction journals. Create a durable
+        # recovery record before mutating them so race/failure paths are still
+        # inspectable instead of leaving an unjournaled partial reversal.
+        transaction = {
+            "schema_version": 1,
+            "proposal_id": proposal_id,
+            "patch_sha256": patch_digest,
+            "base_commit": initial_head,
+            "targets": sorted(set(targets)),
+            "state": "reverting",
+            "updated_at": time.time(),
+            "recovery": "pending_verification",
+            "reason": "Journal created while reverting a legacy proposal",
+        }
+        _write_transaction_journal(root, proposal_id, transaction)
     # Journal persistence is a separate filesystem operation: an external editor
     # can modify a target while it is being written. Revalidate the exact state
     # before running the inverse patch, rather than relying only on the earlier
@@ -1930,14 +2293,6 @@ def _revert_proposal_locked(
             "Repository or patch targets changed after reversal journal persistence; "
             "manual intervention is required"
         )
-    result = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
-    if _git_head(root) != initial_head:
-        raise RuntimeError(
-            "Git HEAD changed while the patch was being reverted; recovery status: "
-            "manual_intervention_required. Inspect the worktree immediately."
-        )
-    if result.returncode != 0:
-        raise RuntimeError(f"Patch reversal failed: {result.stderr.strip()[:500]}")
     def mark_reverted_and_audited() -> None:
         if transaction is not None:
             transaction.update(
@@ -1956,8 +2311,58 @@ def _revert_proposal_locked(
             )
             _write_transaction_journal(root, proposal_id, transaction)
 
+    result = _git(root, ["apply", "--reverse", "--whitespace=error", "-"], patch=patch)
+    if _git_head(root) != initial_head:
+        raise RuntimeError(
+            "Git HEAD changed while the patch was being reverted; recovery status: "
+            "manual_intervention_required. Inspect the worktree immediately."
+        )
+    if result.returncode != 0:
+        # A failed Git invocation is not proof that no files were changed. If the
+        # inverse was applied despite the reported failure, restore the exact
+        # original patch state before marking the journal terminal again.
+        try:
+            current_status = _tracked_status(root)
+            current_targets = _target_state_snapshot(root, targets)
+            if current_status == before_status and current_targets == baseline_target_state:
+                restore_applied_journal()
+                raise RuntimeError(
+                    f"Patch reversal failed without changing the worktree: "
+                    f"{result.stderr.strip()[:500]}"
+                )
+            if not current_status:
+                forward_check = _git(
+                    root, ["apply", "--check", "--whitespace=error", "-"], patch=patch
+                )
+                if forward_check.returncode == 0:
+                    forward = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
+                    if (
+                        forward.returncode == 0
+                        and _git_head(root) == initial_head
+                        and _tracked_status(root) == before_status
+                        and _target_state_snapshot(root, targets) == baseline_target_state
+                        and hashlib.sha256(
+                            _read_regular_file(
+                                proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                            )
+                        ).hexdigest() == patch_digest
+                    ):
+                        restore_applied_journal()
+                        raise RuntimeError(
+                            "Patch reversal reported failure; original patch was restored "
+                            "and verified"
+                        )
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"Patch reversal failed and its effects could not be safely reconciled: "
+            f"{result.stderr.strip()[:500]}. Recovery status: manual_intervention_required."
+        )
     after_status = _tracked_status(root)
     if not after_status:
+        reverted_target_state = _target_state_snapshot(root, targets)
         try:
             append_audit_event(
                 root,
@@ -1979,7 +2384,17 @@ def _revert_proposal_locked(
                     "Recovery status: manual_intervention_required."
                 ) from exc
             forward = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
-            if forward.returncode != 0 or not _tracked_status(root):
+            if (
+                forward.returncode != 0
+                or _tracked_status(root) != before_status
+                or _git_head(root) != initial_head
+                or _target_state_snapshot(root, targets) != baseline_target_state
+                or hashlib.sha256(
+                    _read_regular_file(
+                        proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+                    )
+                ).hexdigest() != patch_digest
+            ):
                 raise RuntimeError(
                     "Reversal audit logging failed and recovery could not be verified. "
                     "Recovery status: manual_intervention_required."
@@ -1988,7 +2403,49 @@ def _revert_proposal_locked(
             raise RuntimeError(
                 "Reversal audit logging failed; original patch was restored"
             ) from exc
+        current_proposal = _read_regular_file(
+            proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+        )
+        if (
+            _git_head(root) != initial_head
+            or _tracked_status(root)
+            or _target_state_snapshot(root, targets) != reverted_target_state
+            or hashlib.sha256(current_proposal).hexdigest() != patch_digest
+        ):
+            raise RuntimeError(
+                "Repository or patch changed during reversal audit persistence; "
+                "transaction remains non-terminal. "
+                "Recovery status: manual_intervention_required."
+            )
         mark_reverted_and_audited()
+        # Verify once more after the terminal journal write. If an external
+        # writer raced with that persistence, downgrade the journal for recovery.
+        final_proposal = _read_regular_file(
+            proposal, max_bytes=_MAX_PATCH_BYTES, label="Patch proposal"
+        )
+        try:
+            final_state_valid = (
+                _git_head(root) == initial_head
+                and not _tracked_status(root)
+                and _target_state_snapshot(root, targets) == reverted_target_state
+                and hashlib.sha256(final_proposal).hexdigest() == patch_digest
+            )
+        except Exception:
+            final_state_valid = False
+        if not final_state_valid:
+            if transaction is not None:
+                transaction.update(
+                    state="reverting",
+                    updated_at=time.time(),
+                    recovery="pending_verification",
+                    reason="Repository changed during terminal journal persistence",
+                )
+                _write_transaction_journal(root, proposal_id, transaction)
+            raise RuntimeError(
+                "Repository changed during terminal journal persistence; transaction "
+                "was returned to a non-terminal state. "
+                "Recovery status: manual_intervention_required."
+            )
         return {
             "proposal_id": proposal_id,
             "status": "reverted",
@@ -1996,50 +2453,7 @@ def _revert_proposal_locked(
             "transaction": "reverted_and_audited",
             "recovery_status": "verified",
         }
-    # A successful reverse must restore a clean tracked worktree. The original
-    # apply operation requires a clean worktree, so any residual tracked diff means
-    # an external edit raced with reversal or the recorded state was not exact.
-    # Do not reapply the proposal automatically: that could overwrite or obscure
-    # the concurrent edit. Preserve the non-terminal journal for manual review.
-    if after_status:
-        raise RuntimeError(
-            "Reversal left tracked changes behind; transaction remains non-terminal. "
-            "Recovery status: manual_intervention_required."
-        )
-    try:
-        append_audit_event(
-            root,
-            "proposal_reverted",
-            proposal_id,
-            {
-                "files": "tracked patch targets",
-                "patch_sha256": hashlib.sha256(patch.encode("utf-8")).hexdigest(),
-                "recovery_status": "verified",
-            },
-        )
-    except Exception as exc:
-        forward_check = _git(root, ["apply", "--check", "--whitespace=error", "-"], patch=patch)
-        if forward_check.returncode != 0:
-            raise RuntimeError(
-                "Reversal audit logging failed and forward recovery is unsafe. "
-                "Recovery status: manual_intervention_required."
-            ) from exc
-        forward = _git(root, ["apply", "--whitespace=error", "-"], patch=patch)
-        if forward.returncode != 0 or _tracked_status(root) != before_status:
-            raise RuntimeError(
-                "Reversal audit logging failed and recovery could not be verified. "
-                "Recovery status: manual_intervention_required."
-            ) from exc
-        restore_applied_journal()
-        raise RuntimeError("Reversal audit logging failed; original patch was restored") from exc
-    mark_reverted_and_audited()
-    return {
-        "proposal_id": proposal_id,
-        "status": "reverted",
-        "files": "tracked patch targets",
-        "transaction": "reverted_and_audited",
-        "recovery_status": "verified",
-    }
+
 
 
 def apply_proposal(
