@@ -82,7 +82,14 @@ def run_diagnostics(
     default_url = "http://localhost:11434" if engine == "ollama" else "http://localhost:1234/v1"
     model = os.getenv("AURIX_MODEL", default_model).strip()
     base_url = os.getenv("AURIX_BASE_URL", default_url).strip()
-    supported = engine in {"openai-compatible", "openai_compatible", "compatible", "ollama"}
+    supported = engine in {
+        "openai-compatible",
+        "openai_compatible",
+        "compatible",
+        "ollama",
+        "ngram",
+        "cpu-ngram",
+    }
     add(
         "provider_configuration",
         "ok" if supported and bool(model) and bool(base_url) else "fail",
