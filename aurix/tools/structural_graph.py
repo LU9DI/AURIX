@@ -108,6 +108,7 @@ def build_structural_graph(
     ]
     edges: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
+    ambiguous_imports: list[dict[str, Any]] = []
     symbol_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for symbol in symbols or []:
         if symbol.get("module") in modules and isinstance(symbol.get("name"), str):
@@ -153,7 +154,12 @@ def build_structural_graph(
         if resolved is not None:
             edges.append({**evidence, "kind": "imports", "target": resolved})
         elif not imported_modules:
-            unresolved.append(evidence)
+            if target in ambiguous_modules:
+                ambiguous_imports.append(
+                    {**evidence, "candidates": sorted(paths_by_module[target])}
+                )
+            else:
+                unresolved.append(evidence)
         for imported_module in imported_modules:
             if imported_module != resolved:
                 edges.append({
@@ -166,6 +172,7 @@ def build_structural_graph(
         "nodes": nodes,
         "edges": sorted(edges, key=lambda item: (item["source"], item["target"], item["path"], item["line"])),
         "unresolved_imports": sorted(unresolved, key=lambda item: (item["path"], item["line"])),
+        "ambiguous_imports": sorted(ambiguous_imports, key=lambda item: (item["path"], item["line"])),
         "resolved_calls": sorted(resolved_calls, key=lambda item: (item["path"], item["line"])),
         "cycles": _cycles(modules, edges),
         "ambiguous_modules": ambiguous_modules,
