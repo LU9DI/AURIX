@@ -10,7 +10,8 @@ _MODULE = runpy.run_path(
 
 def test_classify_path_is_conservative_and_explained():
     classify = _MODULE["classify_path"]
-    assert classify("src/rules/tax.ts") == "application_code"\n    assert classify("rules/tax.json") == "declarative_candidate"
+    assert classify("src/rules/tax.ts") == "application_code"
+    assert classify("rules/tax.json") == "declarative_candidate"
     assert classify("data/fator-r.csv") == "declarative_candidate"
     assert classify("src/services/calculator.ts") == "application_code"
     assert classify("prisma/schema.prisma") == "schema_or_data_candidate"
