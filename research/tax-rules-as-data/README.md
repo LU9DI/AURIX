@@ -49,6 +49,8 @@ After creating the screening JSON, generate a deterministic CSV worksheet (the C
 python research/tax-rules-as-data/build_review_sample.py tax-data-screen.json --limit 30 --output tax-data-review.csv
 ```
 
+The default frame, `all_changed_files`, samples all changed-file entries with numeric Git numstat counts, including files with no keyword hits. This broad frame helps reduce keyword-selection bias. The optional `--frame tax_signal_files` produces a separate, narrower sample of files whose added lines matched the screen's tax terms; results from the two frames must not be pooled as if they had the same sampling design. Generate a fresh screening JSON with the current script first, because older reports do not contain the `changed_files` field required by the broad frame.
+
 The sampler deduplicates by `(commit, path)`, computes `SHA-256(commit + NUL + path)`, and selects the lowest hashes. Reviewers should fill `primary_label`, `reviewer`, `confidence`, and `rationale` according to the protocol. The worksheet is an operational aid; it does not inspect diffs or assign labels automatically.
 
 
