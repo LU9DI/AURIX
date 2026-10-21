@@ -44,7 +44,7 @@ limite superior: as categorias só descrevem a *forma* da mudança, não a decis
 ## Experimentos seguintes: o que o projeto consegue reaproveitar de si mesmo?
 
 Todos usam só informação **anterior** ao que está sendo previsto, sobre os mesmos snapshots. Scripts
-e saídas brutas estão nesta pasta (`reuse.py`, `copy_cov.py`, `chrono_bits.py`, `sensitivity.py`,
+e saídas brutas estão nesta pasta (`reuse.py`, `copy_cov.py`, `chrono_bits.py`, `prior_corpus.py`, `sensitivity.py`,
 `results_*.txt`, `copy_results.jsonl`).
 
 ### Reuso de identificadores e moldes (`copy_cov.py`)
@@ -109,6 +109,23 @@ Se uma linguagem de operações tornasse a estrutura *gratuita*, a economia máx
 Limitações: os fluxos têm só 100–350 KB; o BPB por bloco é muito irregular (não dá para afirmar que o
 erro cai com mais passado); é n-gram, não rede neural; a separação estrutura/conteúdo é por regex, sem
 árvore sintática; clones rasos.
+
+### Mais conhecimento prévio ajuda? (`prior_corpus.py`)
+
+Mesmo teste cronológico (último bloco do código novo), comparando: A = só o passado do repositório,
+B = só um corpus genérico de terceiros, C = genérico + passado (`results_prior.txt`).
+
+| caso | A | B | C |
+|---|---:|---:|---:|
+| aurix (Python), genérico 1,5 MB | 3,61 | 4,16 | 3,10 |
+| aurix (Python), genérico 4 MB | 3,61 | 3,92 | 3,03 |
+| aurix (Python), genérico 12 MB | 3,61 | 3,80 | 3,03 |
+| tax-platform-br (TS), genérico 12 MB | 2,56 | 6,15 | 2,76 |
+
+Em Python, juntar um corpus genérico baixa ~16% e satura em 3,03 já com 4 MB; sozinho, o corpus genérico
+melhora devagar (4,16 → 3,80 em 8x mais dados). Em TypeScript o resultado é inconclusivo: o único corpus
+local disponível é JavaScript compilado de `node_modules`, de estilo diferente, e piorou o resultado.
+Um n-gram não generaliza entre nomes parecidos; mais dados dele têm retorno decrescente.
 
 ## Consequências
 
