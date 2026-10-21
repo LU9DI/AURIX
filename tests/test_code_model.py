@@ -204,7 +204,7 @@ def test_structural_graph_excludes_ambiguous_module_paths():
         {"path": "client.py", "status": "parsed", "sha256": "client"},
     ]
     relations = [
-        {"kind": "imports", "source": "pkg", "target": "pkg", "path": "client.py", "line": 1},
+        {"kind": "imports", "source": "client", "target": "pkg", "path": "client.py", "line": 1},
         {"kind": "imports", "source": "pkg", "target": "pkg", "path": "pkg.py", "line": 1},
     ]
 
@@ -214,6 +214,15 @@ def test_structural_graph_excludes_ambiguous_module_paths():
     assert [node["module"] for node in graph["nodes"]] == ["client"]
     assert graph["edges"] == []
     assert graph["unresolved_imports"] == []
+    assert graph["ambiguous_imports"] == [
+        {
+            "source": "client",
+            "target": "pkg",
+            "path": "client.py",
+            "line": 1,
+            "candidates": ["pkg.py", "pkg/__init__.py"],
+        }
+    ]
 
 
 def test_python_graph_resolves_relative_from_import_without_module_name(tmp_path):
