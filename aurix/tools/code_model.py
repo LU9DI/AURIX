@@ -125,17 +125,24 @@ def analyze_python_code(
                             }
                         )
             elif isinstance(node, ast.ImportFrom):
-                target = "." * node.level + (node.module or "")
-                if len(relations) < MAX_RELATIONS:
-                    relations.append(
-                        {
-                            "kind": "imports",
-                            "source": module_name,
-                            "target": target,
-                            "path": relative,
-                            "line": node.lineno,
-                        }
-                    )
+                if node.module is None and node.level:
+                    # "from . import sibling" names a sibling module, not only
+                    # the containing package. Keep each candidate explicit so
+                    # the graph can resolve it only if that module exists.
+                    targets = ["." * node.level + alias.name for alias in node.names]
+                else:
+                    targets = ["." * node.level + (node.module or "")]
+                for target in targets:
+                    if len(relations) < MAX_RELATIONS:
+                        relations.append(
+                            {
+                                "kind": "imports",
+                                "source": module_name,
+                                "target": target,
+                                "path": relative,
+                                "line": node.lineno,
+                            }
+                        )
             elif isinstance(node, ast.Call):
                 if len(relations) < MAX_RELATIONS:
                     relations.append(
