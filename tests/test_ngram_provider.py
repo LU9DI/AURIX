@@ -134,3 +134,30 @@ def test_hashed_contexts_do_not_collide_when_only_one_byte_differs():
             ctx[position] = value
             ids.add(model._context_value(bytes(ctx), 10))
         assert len(ids) == 256
+
+
+
+def test_corpus_skip_directory_policy_is_case_insensitive(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "main.py").write_text("SAFE = True\n")
+    for dirname, filename, content in (
+        (".GIT", "history.py", "LEAK_GIT = True\n"),
+        ("Node_Modules", "dependency.js", "LEAK_DEP = True\n"),
+        (".VENV", "installed.py", "LEAK_VENV = True\n"),
+    ):
+        folder = root / dirname
+        folder.mkdir()
+        (folder / filename).write_text(content)
+
+    corpus = collect_corpus(root)
+
+    assert b"SAFE = True" in corpus
+    assert b"LEAK_GIT" not in corpus
+    assert b"LEAK_DEP" not in corpus
+    assert b"LEAK_VENV" not in corpus
+
+
+def test_corpus_source_extension_matching_is_case_insensitive(tmp_path):
+    (tmp_path / "UPPER.PY").write_text("def upper_case(): pass\n")
+    assert b"upper_case" in collect_corpus(tmp_path)
