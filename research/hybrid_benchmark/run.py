@@ -47,15 +47,24 @@ def files_under(root: Path, max_file_bytes: int) -> list[tuple[str, bytes]]:
 
 
 def split_files(rows: list[tuple[str, bytes]]) -> tuple[list[tuple[str, bytes]], list[tuple[str, bytes]]]:
-    """Stable path-hash split; files never cross the train/test boundary."""
-    train, test = [], []
+    """Stable split that keeps files with identical bytes in the same partition."""
+    groups: dict[str, list[tuple[str, bytes]]] = {}
     for row in sorted(rows, key=lambda item: item[0]):
-        bucket = int(hashlib.sha256(row[0].encode()).hexdigest()[:8], 16) % 10
-        (test if bucket < 2 else train).append(row)
-    if len(rows) >= 2 and (not train or not test):
-        ordered = sorted(rows, key=lambda item: hashlib.sha256(item[0].encode()).hexdigest())
-        test = [ordered[0]]
-        train = ordered[1:]
+        digest = hashlib.sha256(row[1]).hexdigest()
+        groups.setdefault(digest, []).append(row)
+
+    train, test = [], []
+    for digest, group in sorted(groups.items()):
+        bucket = int(digest[:8], 16) % 10
+        (test if bucket < 2 else train).extend(group)
+
+    # A hash bucket can put every unique content group on one side. Move whole
+    # groups, never individual files, to obtain both partitions when possible.
+    if len(groups) >= 2 and (not train or not test):
+        ordered = sorted(groups.items(), key=lambda item: item[0])
+        test_hashes = {ordered[0][0]}
+        test = [row for digest, group in ordered if digest in test_hashes for row in group]
+        train = [row for digest, group in ordered if digest not in test_hashes for row in group]
     return train, test
 
 
@@ -187,7 +196,7 @@ def main() -> None:
     rows = files_under(args.root, args.max_file_bytes)
     train_rows, test_rows = split_files(rows)
     if not train_rows or not test_rows:
-        parser.error("need at least two eligible source files split between train and test")
+        parser.error("need at least two distinct source-file contents split between train and test")
     train_blob = b"\n\x00\n".join(data for _, data in train_rows)
     train_blob = train_blob[:args.max_train_bytes]
     if len(train_blob) < args.seq_len + 2:
@@ -235,7 +244,8 @@ def main() -> None:
             "estimated_gru_forward_flops_per_byte": gru_flops,
         },
         "notes": [
-            "Path-hash file split is exploratory; similar files may leak patterns.",
+            "Exact duplicate file contents are grouped to avoid train/test leakage from byte-identical files.",
+            "Content-group splitting is exploratory; near-duplicates and shared code fragments may still leak patterns.",
             "Evaluation scores a bounded prefix of held-out files, not a full-corpus score.",
             "FLOPs are analytical estimates, not measured hardware counters.",
             "Compare seeds and repository/time-separated splits before drawing conclusions.",
