@@ -48,7 +48,7 @@ def snapshot_metadata(repo):
     except subprocess.CalledProcessError:
         origin = None
     return {
-        "snapshot_path": str(root),
+        "snapshot_name": root.name,
         "origin_url": origin,
         "snapshot_commit": git(root, "rev-parse", "HEAD"),
         "is_shallow": git(root, "rev-parse", "--is-shallow-repository") == "true",
