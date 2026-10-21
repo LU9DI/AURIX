@@ -13,11 +13,12 @@ Estimate how often tax-related changes are genuinely data-only, algorithmic, or 
 
 ## Build a reproducible sample
 
-1. Eligible units are individual changed-file entries in `commits[*].rule_signal_files`. The screen's keyword match is only a sampling signal.
-2. Deduplicate by the pair `(commit, path)`; do not collapse different commits that touch the same file.
-3. For each unit, calculate `SHA-256(commit + NUL + path)` and sort by the resulting lowercase hexadecimal digest, ascending. This produces a deterministic order independent of report row ordering.
-4. Review the first 30 units, or all units if fewer than 30 exist. If the sample is very small, report the exact denominator; do not imply statistical precision.
-5. Keep a separate appendix of obvious edge cases discovered during review, but do not mix those purposively selected cases into the random-like deterministic sample estimates.
+1. The primary review frame is individual changed-file entries in `commits[*].changed_files`, including files without lexical keyword hits. Generate the worksheet with the default `--frame all_changed_files`. This reduces dependence on the screen's small keyword list, though the frame still excludes binary files and merge commits and the hash order is not a probability sample.
+2. Optionally create a separate diagnostic worksheet with `--frame tax_signal_files` for entries in `commits[*].rule_signal_files`. Treat it as a keyword-enriched diagnostic frame; never pool its results with the broad frame.
+3. Deduplicate by the pair `(commit, path)`; do not collapse different commits that touch the same file.
+4. For each unit, calculate `SHA-256(commit + NUL + path)` and sort by the resulting lowercase hexadecimal digest, ascending. This produces a deterministic order independent of report row ordering.
+5. Review the first 30 units, or all units if fewer than 30 exist. If the sample is very small, report the exact denominator; do not imply statistical precision.
+6. Keep a separate appendix of obvious edge cases discovered during review, but do not mix those purposively selected cases into sample estimates.
 
 ## Label each unit
 
@@ -39,7 +40,7 @@ Report counts and proportions with explicit denominators, including `uncertain` 
 
 ## Known bias and limits
 
-The candidate pool excludes relevant changes without matching terms, so it cannot estimate recall over all tax-rule changes. Multiple file entries from one commit are not independent observations. The deterministic hash order is reproducible but is not a guarantee of representativeness. A stronger follow-up would manually label a separately defined sample of all commits or all changed files, including files without lexical hits.
+The broad changed-file frame avoids excluding files solely because they lack matching tax terms, but it still includes unrelated files and omits binary files and merge commits. The tax-signal frame excludes relevant changes without matching terms and cannot estimate recall. Multiple file entries from one commit are not independent observations. The deterministic hash order is reproducible but is not a probability sample or a guarantee of representativeness.
 
 ## Decision gate
 
