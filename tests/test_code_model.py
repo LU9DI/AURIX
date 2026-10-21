@@ -275,3 +275,49 @@ def test_cycle_detection_handles_graphs_deeper_than_python_recursion_limit():
     edges.append({"kind": "imports", "source": ordered[-1], "target": ordered[0]})
 
     assert _cycles(nodes, edges) == [ordered]
+
+
+
+def test_cycle_detection_matches_reachability_oracle_on_small_graphs():
+    import random
+
+    rng = random.Random(20261021)
+    for _ in range(100):
+        count = rng.randint(1, 8)
+        nodes = {f"m{i}" for i in range(count)}
+        edges = [
+            {"kind": "imports", "source": source, "target": target}
+            for source in sorted(nodes)
+            for target in sorted(nodes)
+            if rng.random() < 0.22
+        ]
+
+        adjacency = {node: set() for node in nodes}
+        for edge in edges:
+            adjacency[edge["source"]].add(edge["target"])
+
+        reachable = {}
+        for source in nodes:
+            seen = set()
+            pending = [source]
+            while pending:
+                current = pending.pop()
+                if current in seen:
+                    continue
+                seen.add(current)
+                pending.extend(adjacency[current] - seen)
+            reachable[source] = seen
+
+        remaining = set(nodes)
+        expected = []
+        while remaining:
+            source = min(remaining)
+            component = {
+                node for node in remaining
+                if node in reachable[source] and source in reachable[node]
+            }
+            remaining -= component
+            if len(component) > 1 or source in adjacency[source]:
+                expected.append(sorted(component))
+
+        assert _cycles(nodes, edges) == sorted(expected)
