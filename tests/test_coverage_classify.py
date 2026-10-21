@@ -27,3 +27,16 @@ def test_classifier_identifies_simple_deterministic_shapes():
 
 def test_classifier_does_not_call_new_logic_deterministic():
     assert CLASSIFIER.classify("src/app.py", ["return old_value"], ["return calculate(value)"]) == "logica_nova"
+
+
+def test_hunks_rejects_non_git_directory(tmp_path):
+    import subprocess
+
+    invalid_repo = tmp_path / "not-a-repository"
+    invalid_repo.mkdir()
+    try:
+        list(CLASSIFIER.hunks(str(invalid_repo)))
+    except subprocess.CalledProcessError as exc:
+        assert exc.returncode != 0
+    else:
+        raise AssertionError("hunks() must not treat git failures as an empty history")
