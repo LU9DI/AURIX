@@ -51,6 +51,8 @@ def test_safe_origin_removes_embedded_credentials():
 
     assert runner.safe_origin("https://user:secret@github.com/org/repo.git") == "https://github.com/org/repo.git"
     assert runner.safe_origin("https://github.com/org/repo.git") == "https://github.com/org/repo.git"
+    assert runner.safe_origin("https://github.com/org/repo.git?token=secret#fragment") == "https://github.com/org/repo.git"
+    assert runner.safe_origin("https://user:secret@[2001:db8::1]:8443/org/repo.git") == "https://[2001:db8::1]:8443/org/repo.git"
     assert runner.safe_origin("git@github.com:org/repo.git") == "git@github.com:org/repo.git"
 
 
@@ -145,3 +147,23 @@ def test_hunks_extracts_changes_from_git_history(tmp_path):
     assert path == "module.py"
     assert deleted == ["def before():", "    return 1"]
     assert added == ["def after():", "    return 2"]
+
+
+def test_study_runner_preserves_existing_output_on_invalid_snapshot(tmp_path):
+    import subprocess
+    import pytest
+
+    runner_path = Path(__file__).resolve().parents[1] / "research" / "coverage-study" / "run_study.py"
+    runner_spec = importlib.util.spec_from_file_location("coverage_run_study_atomic", runner_path)
+    assert runner_spec is not None and runner_spec.loader is not None
+    runner = importlib.util.module_from_spec(runner_spec)
+    runner_spec.loader.exec_module(runner)
+
+    output = tmp_path / "results.jsonl"
+    output.write_text("previous valid results\\n", encoding="utf-8")
+    invalid_repo = tmp_path / "not-a-repository"
+    invalid_repo.mkdir()
+
+    with pytest.raises(subprocess.CalledProcessError):
+        runner.main(["run_study.py", str(output), str(invalid_repo)])
+    assert output.read_text(encoding="utf-8") == "previous valid results\\n"
