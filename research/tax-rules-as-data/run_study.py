@@ -30,7 +30,6 @@ def classify_path(path: str) -> str:
     normalized = path.replace("\\", "/")
     suffix = Path(normalized).suffix.lower()
     # SQL migrations are schema/data changes, not plain declarative data files.
-    # Check this before DATA_PATH because "migrations" is a candidate directory.
     if suffix in SCHEMA_EXTENSIONS:
         return "schema_or_data_candidate"
     if suffix in DATA_EXTENSIONS:
