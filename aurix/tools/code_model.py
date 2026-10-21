@@ -157,7 +157,7 @@ def analyze_python_code(
         "files": files,
         "symbols": symbols,
         "relations": relations,
-        "graph": build_structural_graph(files, relations),
+        "graph": build_structural_graph(files, relations, symbols),
         "errors": errors[:100],
         "truncated": truncated or len(symbols) >= MAX_SYMBOLS or len(relations) >= MAX_RELATIONS,
         "execution_performed": False,
