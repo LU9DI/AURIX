@@ -11,6 +11,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 
 HERE = Path(__file__).resolve().parent
@@ -27,10 +28,23 @@ def git(repo, *args):
     ).stdout.strip()
 
 
+def safe_origin(origin):
+    """Remove URL user-info so snapshots never persist embedded credentials."""
+    if not origin or "://" not in origin:
+        return origin
+    parsed = urlsplit(origin)
+    if parsed.username is None and parsed.password is None:
+        return origin
+    host = parsed.hostname or ""
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    return urlunsplit((parsed.scheme, host, parsed.path, parsed.query, parsed.fragment))
+
+
 def snapshot_metadata(repo):
     root = Path(git(repo, "rev-parse", "--show-toplevel")).resolve()
     try:
-        origin = git(root, "remote", "get-url", "origin")
+        origin = safe_origin(git(root, "remote", "get-url", "origin"))
     except subprocess.CalledProcessError:
         origin = None
     return {
