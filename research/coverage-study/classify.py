@@ -134,11 +134,24 @@ def hunks(repo):
                 yield r
             commit, msg = line[4:].split("\t", 1)
             path = None
+        elif line.startswith("--- "):
+            # Deleted files have no `+++ b/path`; preserve their path from the
+            # old-file header so their removed lines are not silently discarded.
+            if line.startswith("--- a/"):
+                old_path = line[6:]
+                if path is None:
+                    path = old_path
         elif line.startswith("+++ "):
             r = flush()
             if r:
                 yield r
-            path = line[6:] if line.startswith("+++ b/") else None
+            if line.startswith("+++ b/"):
+                path = line[6:]
+            elif line == "+++ /dev/null":
+                # The old path was captured by the preceding --- a/ header.
+                pass
+            else:
+                path = None
         elif line.startswith("@@ "):
             r = flush()
             if r:
