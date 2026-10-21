@@ -12,7 +12,7 @@ import re
 import subprocess
 from pathlib import Path
 
-IDENTIFIER = re.compile(r"(?<![.\w])(?:[A-Za-z_$][\w$]*)(?!\w)")
+IDENTIFIER = re.compile(r"(?<![.<\\w])(?:[A-Za-z_$][\\w$]*)(?!\\w)")
 NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
 STRING = re.compile(r"""(['"]).*?\1""")
 KEYWORDS = {
