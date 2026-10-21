@@ -153,7 +153,7 @@ def compare_graph_snapshots(previous: dict[str, Any], current: dict[str, Any]) -
                 queue.append(dependent)
 
     current_paths = {node["module"]: node["path"] for node in new_nodes.values()}
-    invalidated = set(added + changed)
+    invalidated = set(added + removed + changed)
     invalidated.update(current_paths[module] for module in affected if module in current_paths)
     return {
         "added_files": added,
