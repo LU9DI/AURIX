@@ -23,7 +23,7 @@ def test_classify_path_is_conservative_and_explained():
 
 def test_parse_numstat_skips_binary_and_counts_added_plus_deleted():
     parse = _MODULE["parse_numstat"]
-    rows = parse("3\\t2\\tsrc/rules/rates.json\\n-\\t-\\tassets/logo.png\\n")
+    rows = parse("3\t2\tsrc/rules/rates.json\n-\t-\tassets/logo.png\n")
     assert len(rows) == 1
     assert rows[0]["changed_lines"] == 5
     assert rows[0]["class"] == "declarative_candidate"
@@ -40,11 +40,11 @@ def test_run_study_on_temporary_git_repo(tmp_path: Path):
     git("config", "user.name", "AURIX test")
     git("config", "user.email", "aurix-test@example.invalid")
 
-    (repo / "rules.json").write_text('{"threshold": 0.1}\\n', encoding="utf-8")
+    (repo / "rules.json").write_text('{"threshold": 0.1}\n', encoding="utf-8")
     git("add", "rules.json")
     git("commit", "-m", "add declarative threshold")
 
-    (repo / "tax.ts").write_text('const aliquota = 0.1;\\n', encoding="utf-8")
+    (repo / "tax.ts").write_text('const aliquota = 0.1;\n', encoding="utf-8")
     git("add", "tax.ts")
     git("commit", "-m", "add calculation code")
 
