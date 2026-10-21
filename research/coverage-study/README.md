@@ -13,7 +13,7 @@ Resultados brutos em `results.jsonl` (6 repositórios, ~1100 commits).
 | repo | hunks de código | hunks determinísticos | linhas determinísticas | commits de código 100% determinísticos |
 |---|---:|---:|---:|---:|
 | aegis | 106 | 21,7% | 0,3% | 0 / 22 |
-| aurix | 1442 | 39,7% | 6,1% (*) | 41 / 262 |
+| aurix | 1436 | 39,8% | 6,2% (*) | 41 / 261 |
 | backend | 715 | 16,8% | 0,9% | 5 / 157 |
 | saas-reputacao-ia | 374 | 11,5% | 0,3% | 3 / 27 |
 | tax-platform-br | 704 | 18,0% | 3,0% | 17 / 277 |
