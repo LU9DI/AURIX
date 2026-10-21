@@ -35,6 +35,7 @@ def _resolve_import(source_path: str, target: str, modules: set[str]) -> str | N
 
 
 def _cycles(nodes: set[str], edges: list[dict[str, Any]]) -> list[list[str]]:
+    """Find strongly connected components without recursion-depth limits."""
     adjacency: dict[str, set[str]] = {node: set() for node in nodes}
     for edge in edges:
         if edge["kind"] == "imports":
@@ -43,38 +44,51 @@ def _cycles(nodes: set[str], edges: list[dict[str, Any]]) -> list[list[str]]:
     index = 0
     indexes: dict[str, int] = {}
     lowlinks: dict[str, int] = {}
-    stack: list[str] = []
+    component_stack: list[str] = []
     on_stack: set[str] = set()
     result: list[list[str]] = []
 
-    def visit(node: str) -> None:
-        nonlocal index
-        indexes[node] = lowlinks[node] = index
+    # Explicit DFS frames avoid Python's recursion limit on large workspaces.
+    for root in sorted(nodes):
+        if root in indexes:
+            continue
+        indexes[root] = lowlinks[root] = index
         index += 1
-        stack.append(node)
-        on_stack.add(node)
-        for neighbor in sorted(adjacency[node]):
+        component_stack.append(root)
+        on_stack.add(root)
+        dfs_stack: list[tuple[str, Any]] = [(root, iter(sorted(adjacency[root])))]
+
+        while dfs_stack:
+            node, neighbors = dfs_stack[-1]
+            try:
+                neighbor = next(neighbors)
+            except StopIteration:
+                dfs_stack.pop()
+                if dfs_stack:
+                    parent = dfs_stack[-1][0]
+                    lowlinks[parent] = min(lowlinks[parent], lowlinks[node])
+                if lowlinks[node] == indexes[node]:
+                    component: list[str] = []
+                    while True:
+                        member = component_stack.pop()
+                        on_stack.remove(member)
+                        component.append(member)
+                        if member == node:
+                            break
+                    if len(component) > 1 or node in adjacency[node]:
+                        result.append(sorted(component))
+                continue
+
             if neighbor not in indexes:
-                visit(neighbor)
-                lowlinks[node] = min(lowlinks[node], lowlinks[neighbor])
+                indexes[neighbor] = lowlinks[neighbor] = index
+                index += 1
+                component_stack.append(neighbor)
+                on_stack.add(neighbor)
+                dfs_stack.append((neighbor, iter(sorted(adjacency[neighbor]))))
             elif neighbor in on_stack:
                 lowlinks[node] = min(lowlinks[node], indexes[neighbor])
-        if lowlinks[node] == indexes[node]:
-            component: list[str] = []
-            while True:
-                neighbor = stack.pop()
-                on_stack.remove(neighbor)
-                component.append(neighbor)
-                if neighbor == node:
-                    break
-            if len(component) > 1 or node in adjacency[node]:
-                result.append(sorted(component))
 
-    for node in sorted(nodes):
-        if node not in indexes:
-            visit(node)
     return sorted(result)
-
 
 def build_structural_graph(
     files: list[dict[str, Any]],
