@@ -70,6 +70,28 @@ def split_files(rows: list[tuple[str, bytes]]) -> tuple[list[tuple[str, bytes]],
     return train, test
 
 
+def build_training_blob(rows: list[tuple[str, bytes]], max_bytes: int) -> tuple[bytes, dict[str, int]]:
+    """Build a bounded training corpus and record exactly how many bytes each file contributes."""
+    separator = b"\n\x00\n"
+    parts: list[bytes] = []
+    used: dict[str, int] = {}
+    remaining = max_bytes
+    for name, data in rows:
+        if remaining <= 0:
+            break
+        if parts:
+            if remaining <= len(separator):
+                break
+            parts.append(separator)
+            remaining -= len(separator)
+        chunk = data[:remaining]
+        if chunk:
+            parts.append(chunk)
+            used[name] = len(chunk)
+            remaining -= len(chunk)
+    return b"".join(parts), used
+
+
 def bpb(log_probs) -> float:
     """Convert natural-log probabilities into bits per byte."""
     if len(log_probs) == 0:
@@ -199,8 +221,7 @@ def main() -> None:
     train_rows, test_rows = split_files(rows)
     if not train_rows or not test_rows:
         parser.error("need at least two distinct source-file contents split between train and test")
-    train_blob = b"\n\x00\n".join(data for _, data in train_rows)
-    train_blob = train_blob[:args.max_train_bytes]
+    train_blob, train_bytes_by_file = build_training_blob(train_rows, args.max_train_bytes)
     if len(train_blob) < args.seq_len + 2:
         parser.error("training corpus is too small for --seq-len; lower it or raise --max-train-bytes")
 
@@ -230,12 +251,21 @@ def main() -> None:
         "torch": torch.__version__,
         "numpy": numpy.__version__,
         "device": device,
-        "config": vars(args) | {"root": str(args.root.resolve()), "device": device},
+        # Do not leak a machine-specific absolute path into a shareable artifact.
+        "config": vars(args) | {"root": args.root.resolve().name, "device": device},
         "corpus": {
-            "train_files": len(train_rows), "test_files": len(test_rows),
+            "train_files": len(train_bytes_by_file), "test_files": len(test_rows),
             "train_bytes_used": len(train_blob), "test_bytes_scored": scored_bytes,
-            "files": [{"path": name, "bytes": len(data),
-                       "sha256": hashlib.sha256(data).hexdigest()} for name, data in rows],
+            "files": [
+                {
+                    "path": name,
+                    "bytes": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "partition": "train" if name in train_bytes_by_file or any(n == name for n, _ in train_rows) else "test",
+                    "train_bytes_used": train_bytes_by_file.get(name, 0),
+                }
+                for name, data in rows
+            ],
         },
         "metrics": {
             "bpb": metrics,
