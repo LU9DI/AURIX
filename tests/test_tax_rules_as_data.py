@@ -121,3 +121,28 @@ def test_build_review_sample_is_deterministic_deduplicated_and_source_free():
     assert all(row["primary_label"] == "" for row in sample)
     assert all("matching_added_lines" not in row for row in sample)
     assert sampler(report, limit=2) == sample
+
+
+
+def test_review_summary_uses_labelled_denominator_and_rejects_unknown_labels():
+    summary_path = Path(__file__).resolve().parents[1] / "research/tax-rules-as-data/summarize_review.py"
+    summarize = runpy.run_path(str(summary_path))["summarize"]
+    result = summarize([
+        {"primary_label": "data_only"},
+        {"primary_label": "algorithmic"},
+        {"primary_label": "uncertain"},
+        {"primary_label": ""},
+    ])
+    assert result["total_sample_units"] == 4
+    assert result["labelled_units"] == 3
+    assert result["unlabelled_units"] == 1
+    assert result["counts"]["data_only"] == 1
+    assert result["counts"]["uncertain"] == 1
+    assert result["proportions_among_labelled"]["data_only"] == 1 / 3
+    assert "not the share of changed lines" in result["warning"]
+    try:
+        summarize([{"primary_label": "maybe"}])
+    except ValueError as exc:
+        assert "invalid primary_label" in str(exc)
+    else:
+        raise AssertionError("unknown labels must be rejected")
