@@ -51,7 +51,7 @@ def test_hunks_preserves_removed_file_changes(tmp_path):
     subprocess.run(["git", "-C", str(repo), "config", "user.email", "aurix-test@example.invalid"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "AURIX test"], check=True)
     source = repo / "removed.py"
-    source.write_text("def obsolete():\\n    return True\\n", encoding="utf-8")
+    source.write_text("def obsolete():\n    return True\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(repo), "add", "removed.py"], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "initial"], check=True)
     source.unlink()
