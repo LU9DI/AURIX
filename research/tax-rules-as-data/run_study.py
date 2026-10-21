@@ -16,7 +16,6 @@ from pathlib import Path
 DATA_EXTENSIONS = {".json", ".jsonc", ".yaml", ".yml", ".toml", ".csv"}
 SCHEMA_EXTENSIONS = {".sql", ".prisma"}
 CODE_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".py"}
-DATA_PATH = re.compile(r"(^|/)(data|fixtures|rules|tables|rates|constants|config|migrations?)(/|$)", re.I)
 RULE_SIGNAL = re.compile(r"\b(?:faixa|fator.?r|anexo|aliquota|al[ií]quota|limite|threshold|bracket|rate|tax.?rule)\b", re.I)
 
 
@@ -39,8 +38,6 @@ def classify_path(path: str) -> str:
     if suffix in CODE_EXTENSIONS:
         # A "rules" or "data" directory does not make executable code declarative.
         return "application_code"
-    if DATA_PATH.search(normalized):
-        return "declarative_candidate"
     return "other"
 
 
