@@ -16,6 +16,7 @@ def test_classify_path_is_conservative_and_explained():
     assert classify("prisma/schema.prisma") == "schema_or_data_candidate"
     assert classify("migrations/20261005_rule_update.sql") == "schema_or_data_candidate"
     assert classify("data/rules.json") == "declarative_candidate"
+    assert classify("rules/README.md") == "other"
 
 
 def test_parse_numstat_skips_binary_and_counts_added_plus_deleted():
