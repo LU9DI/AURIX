@@ -124,6 +124,6 @@ def test_build_training_blob_records_exact_contribution_and_respects_byte_limit(
     helper = run_path(str(_RUN_PATH))["build_training_blob"]
     rows = [("a.py", b"12345"), ("b.py", b"abcdef")]
     blob, used = helper(rows, max_bytes=8)
-    assert len(blob) <= 10
+    assert len(blob) <= 8
     assert blob == b"12345"
     assert used == {"a.py": 5}
