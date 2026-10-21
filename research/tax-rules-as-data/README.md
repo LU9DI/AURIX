@@ -10,7 +10,9 @@ The output path must be outside the analyzed repository; the script rejects an o
 the target tree so the report cannot accidentally dirty the repository. The script reads Git history
 only; it does not clone, check out, modify, or execute the target repository. It reports changed-line counts grouped by likely declarative files, schema/migration
 files, application code, and other files. It also counts added lines containing a small set of
-tax-rule terms such as brackets, rates, limits, and Fator R.
+tax-rule terms such as brackets, rates, limits, and Fator R, and records the relative file paths
+where those matching lines were added. This makes it easier to build a reproducible shortlist of
+diffs for manual review without storing matching source lines in the report.
 
 ## How to interpret it
 
