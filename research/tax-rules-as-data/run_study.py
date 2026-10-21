@@ -102,6 +102,14 @@ def run_study(repo: Path, max_commits: int = 0) -> dict:
         commit_rows.append({
             "commit": commit,
             "files_changed": len(files),
+            "changed_files": [
+                {
+                    "path": row["path"],
+                    "class": row["class"],
+                    "changed_lines": row["changed_lines"],
+                }
+                for row in sorted(files, key=lambda item: item["path"])
+            ],
             "changed_lines_by_class": dict(counts),
             "added_lines_with_tax_rule_terms": relevant_added,
             "rule_signal_files": [
