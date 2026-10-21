@@ -1,0 +1,15 @@
+# python reuse.py (causal: so commits anteriores; commits >1500 linhas fora da avaliacao)
+aurix              linhas=  1291 {'exata': 26.5, 'molde': 69.6, 'tem_molde_compativel': 68.6, 'teto_arquivo': 31.0, 'teto_repo': 43.9, 'k1': 17.0, 'k5': 17.4, 'k20': 18.8}
+backend            linhas=  3495 {'exata': 35.5, 'molde': 67.7, 'tem_molde_compativel': 67.6, 'teto_arquivo': 38.0, 'teto_repo': 47.0, 'k1': 24.2, 'k5': 24.3, 'k20': 24.5}
+tax-platform-br    linhas=  2927 {'exata': 19.5, 'molde': 59.1, 'tem_molde_compativel': 59.1, 'teto_arquivo': 26.1, 'teto_repo': 34.3, 'k1': 15.7, 'k5': 16.3, 'k20': 17.9}
+zion               linhas=  1738 {'exata': 16.3, 'molde': 49.9, 'tem_molde_compativel': 49.9, 'teto_arquivo': 14.9, 'teto_repo': 30.7, 'k1': 12.3, 'k5': 12.3, 'k20': 12.4}
+aegis              linhas=  1594 {'exata': 10.2, 'molde': 44.0, 'tem_molde_compativel': 43.7, 'teto_arquivo': 7.6, 'teto_repo': 13.5, 'k1': 7.4, 'k5': 7.5, 'k20': 7.5}
+saas-reputacao-ia  linhas=  1000 {'exata': 11.7, 'molde': 60.5, 'tem_molde_compativel': 60.5, 'teto_arquivo': 9.3, 'teto_repo': 27.4, 'k1': 4.8, 'k5': 4.9, 'k20': 5.3}
+
+# python reuse.py --within-commit (conta auto-copia dentro do commit; infla)
+aurix              linhas=  1291 {'exata': 30.8, 'molde': 72.5, 'tem_molde_compativel': 71.6, 'teto_arquivo': 44.5, 'teto_repo': 53.6, 'k1': 21.8, 'k5': 26.0, 'k20': 30.8}
+backend            linhas=  3495 {'exata': 39.1, 'molde': 70.8, 'tem_molde_compativel': 70.7, 'teto_arquivo': 49.2, 'teto_repo': 55.5, 'k1': 26.4, 'k5': 27.9, 'k20': 31.2}
+tax-platform-br    linhas=  2927 {'exata': 21.8, 'molde': 64.5, 'tem_molde_compativel': 64.5, 'teto_arquivo': 36.5, 'teto_repo': 44.2, 'k1': 16.6, 'k5': 18.2, 'k20': 22.5}
+zion               linhas=  1738 {'exata': 19.3, 'molde': 53.9, 'tem_molde_compativel': 53.9, 'teto_arquivo': 31.1, 'teto_repo': 40.4, 'k1': 15.5, 'k5': 17.7, 'k20': 23.1}
+aegis              linhas=  1594 {'exata': 14.4, 'molde': 59.6, 'tem_molde_compativel': 59.5, 'teto_arquivo': 21.0, 'teto_repo': 26.7, 'k1': 11.0, 'k5': 12.2, 'k20': 15.4}
+saas-reputacao-ia  linhas=  1000 {'exata': 17.2, 'molde': 64.7, 'tem_molde_compativel': 64.7, 'teto_arquivo': 26.1, 'teto_repo': 41.4, 'k1': 9.1, 'k5': 10.4, 'k20': 14.3}

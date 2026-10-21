@@ -15,6 +15,9 @@ IMPORT = re.compile(
 )
 COMMENT = re.compile(r"^\s*(//|#|\*|/\*|\*/|--)")
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+TOKEN = re.compile(
+    r"""("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`)|(\d+(?:\.\d+)?)|([A-Za-z_][A-Za-z0-9_]*)|(\s+)|(.)"""
+)
 STR = re.compile(r"""("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`[^`]*`)""")
 NUM = re.compile(r"\b\d+(?:\.\d+)?\b")
 KW = {
@@ -111,8 +114,11 @@ DETERMINISTIC = {
 }
 
 
-def hunks(repo):
+def hunks(repo, reverse=False):
+    """Yield (commit, subject, path, deleted_lines, added_lines); oldest first if reverse."""
     cmd = ["git", "-C", repo, "log", "--no-merges", "-p", "-U0", "--format=@@C %H\t%s"]
+    if reverse:
+        cmd.insert(4, "--reverse")
     out = subprocess.run(cmd, capture_output=True, text=True, errors="replace", check=True).stdout
     commit = msg = path = None
     add = []
