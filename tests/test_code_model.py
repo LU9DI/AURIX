@@ -174,3 +174,23 @@ def test_incremental_graph_comparison_invalidates_deleted_modules():
     assert result["removed_files"] == ["pkg/a.py"]
     assert "pkg/a.py" in result["invalidated_files"]
     assert "pkg/b.py" in result["invalidated_files"]
+
+
+
+def test_orchestrator_tracks_incremental_structural_snapshots(tmp_path):
+    source = tmp_path / "module.py"
+    source.write_text("def first(): return 1\\n", encoding="utf-8")
+
+    class UnusedProvider:
+        def generate(self, prompt, *, system=""):
+            raise AssertionError("provider should not be called for direct tool execution")
+
+    orchestrator = Orchestrator(UnusedProvider(), workspace=tmp_path)
+    first = json.loads(orchestrator._call_tool("analyze_python_code", {}))
+    source.write_text("def second(): return 2\\n", encoding="utf-8")
+    second = json.loads(orchestrator._call_tool("analyze_python_code", {}))
+
+    assert first["graph"]["incremental"]["status"] == "baseline_created"
+    changes = second["graph"]["incremental"]["changes"]
+    assert changes["changed_files"] == ["module.py"]
+    assert changes["invalidated_files"] == ["module.py"]
