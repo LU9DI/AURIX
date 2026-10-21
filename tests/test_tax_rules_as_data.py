@@ -56,6 +56,12 @@ def test_run_study_on_temporary_git_repo(tmp_path: Path):
     assert report["totals"]["changed_lines_by_class"]["declarative_candidate"] == 1
     assert report["totals"]["changed_lines_by_class"]["application_code"] == 1
     assert report["totals"]["added_lines_containing_tax_rule_terms"] == 2
+    signal_files = {
+        item["path"]
+        for commit in report["commits"]
+        for item in commit["rule_signal_files"]
+    }
+    assert signal_files == {"rules.json", "tax.ts"}
     rendered = str(report)
     assert "const aliquota" not in rendered
     assert str(repo) not in rendered
