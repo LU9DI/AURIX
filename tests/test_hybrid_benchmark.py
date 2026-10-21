@@ -59,4 +59,15 @@ def test_cli_rejects_non_positive_ngram_order() -> None:
         check=False,
     )
     assert result.returncode == 2
-    assert "--order must be a positive integer" in result.stderr
+    assert "--order must be between 1 and 16" in result.stderr
+
+
+def test_cli_rejects_ngram_order_above_provider_limit() -> None:
+    result = subprocess.run(
+        [sys.executable, str(_RUN_PATH), "--order", "17"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "--order must be between 1 and 16" in result.stderr
