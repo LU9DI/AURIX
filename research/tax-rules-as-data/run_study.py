@@ -1,0 +1,178 @@
+"""Estimate whether tax-platform-br changes are concentrated in declarative data.
+
+This is a screening metric, not a semantic claim that changes can be moved to data.
+It uses Git history and classifies changed lines by file type/path and conservative
+textual signals. It never modifies or executes the target repository.
+"""
+from __future__ import annotations
+
+import argparse
+import collections
+import json
+import re
+import subprocess
+from pathlib import Path
+
+DATA_EXTENSIONS = {".json", ".jsonc", ".yaml", ".yml", ".toml", ".csv"}
+SCHEMA_EXTENSIONS = {".sql", ".prisma"}
+CODE_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".py"}
+RULE_SIGNAL = re.compile(r"\b(?:faixa|fator.?r|anexo|aliquota|al[ií]quota|limite|threshold|bracket|rate|tax.?rule)\b", re.I)
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True,
+        text=True, errors="replace",
+    ).stdout
+
+
+def classify_path(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    suffix = Path(normalized).suffix.lower()
+    # SQL migrations are schema/data changes, not plain declarative data files.
+    if suffix in SCHEMA_EXTENSIONS:
+        return "schema_or_data_candidate"
+    if suffix in DATA_EXTENSIONS:
+        return "declarative_candidate"
+    if suffix in CODE_EXTENSIONS:
+        # A "rules" or "data" directory does not make executable code declarative.
+        return "application_code"
+    return "other"
+
+
+def parse_numstat(text: str) -> list[dict]:
+    rows = []
+    for line in text.splitlines():
+        fields = line.split("\t", 2)
+        if len(fields) != 3:
+            continue
+        added, deleted, path = fields
+        # Binary files use '-' instead of numeric counts.
+        if added == "-" or deleted == "-":
+            continue
+        try:
+            a, d = int(added), int(deleted)
+        except ValueError:
+            continue
+        rows.append({
+            "path": path,
+            "added_lines": a,
+            "deleted_lines": d,
+            "changed_lines": a + d,
+            "class": classify_path(path),
+        })
+    return rows
+
+
+def run_study(repo: Path, max_commits: int = 0) -> dict:
+    repo = repo.resolve()
+    commits = git(repo, "log", "--reverse", "--no-merges", "--format=%H").splitlines()
+    if max_commits > 0:
+        commits = commits[-max_commits:]
+    by_class = collections.Counter()
+    by_extension = collections.Counter()
+    rule_related_lines = collections.Counter()
+    commit_rows = []
+    for commit in commits:
+        stat = git(repo, "show", "--format=", "--no-renames", "--numstat", commit)
+        files = parse_numstat(stat)
+        counts = collections.Counter()
+        for row in files:
+            by_class[row["class"]] += row["changed_lines"]
+            by_extension[Path(row["path"]).suffix.lower() or "<no extension>"] += row["changed_lines"]
+            counts[row["class"]] += row["changed_lines"]
+        # Scan added lines in all files; only counts are retained, never source text.
+        patch = git(repo, "show", "--format=", "--no-ext-diff", "--unified=0", commit)
+        relevant_added = 0
+        current_path = None
+        matching_by_path = collections.Counter()
+        for line in patch.splitlines():
+            if line.startswith("+++ "):
+                header_path = line[4:]
+                current_path = header_path[2:] if header_path.startswith("b/") else None
+                continue
+            if not line.startswith("+"):
+                continue
+            if RULE_SIGNAL.search(line[1:]):
+                relevant_added += 1
+                if current_path:
+                    matching_by_path[current_path] += 1
+        if relevant_added:
+            rule_related_lines["added_lines_with_tax_rule_terms"] += relevant_added
+        commit_rows.append({
+            "commit": commit,
+            "files_changed": len(files),
+            "changed_files": [
+                {
+                    "path": row["path"],
+                    "class": row["class"],
+                    "changed_lines": row["changed_lines"],
+                }
+                for row in sorted(files, key=lambda item: item["path"])
+            ],
+            "changed_lines_by_class": dict(counts),
+            "added_lines_with_tax_rule_terms": relevant_added,
+            "rule_signal_files": [
+                {"path": path, "matching_added_lines": count}
+                for path, count in sorted(matching_by_path.items())
+            ],
+        })
+
+    total = sum(by_class.values())
+    candidates = by_class["declarative_candidate"] + by_class["schema_or_data_candidate"]
+    return {
+        "schema_version": 1,
+        "study": "tax_platform_changes_as_data_screen",
+        "repository_name": repo.name,
+        "commits_evaluated": len(commits),
+        "totals": {
+            "changed_lines": total,
+            "changed_lines_by_class": dict(by_class),
+            "changed_lines_by_extension": dict(by_extension),
+            "declarative_or_schema_candidate_share": candidates / total if total else None,
+            "added_lines_containing_tax_rule_terms": rule_related_lines["added_lines_with_tax_rule_terms"],
+        },
+        "protocol": {
+            "history": "all non-merge commits in chronological order unless --max-commits is set",
+            "line_counts": "Git numstat added + deleted lines; rename detection disabled",
+            "path_classification": "file extension and directory names only",
+            "tax_terms": "count of added diff lines containing a small set of tax-rule terms; not limited to TypeScript",
+            "privacy": "report contains commit hashes and relative file paths, no source text or remote URL",
+            "limitations": [
+                "candidate share is not the fraction of changes safely representable as data",
+                "classification may label configs or non-rule SQL migrations as candidates even when they are not business rules",
+                "rules embedded in application code may be missed; matching tax terms is only a rough signal",
+                "a semantic review of candidate diffs is required before designing a DSL or schema",
+            ],
+        },
+        "commits": commit_rows,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("repo", type=Path, help="already-cloned tax-platform-br repository")
+    parser.add_argument("--max-commits", type=int, default=0, help="most recent non-merge commits; 0 means all")
+    parser.add_argument("--output", type=Path, help="write JSON report")
+    args = parser.parse_args()
+    repo_path = args.repo.resolve()
+    output_path = args.output.resolve() if args.output else None
+    if output_path is not None:
+        try:
+            output_path.relative_to(repo_path)
+        except ValueError:
+            pass
+        else:
+            parser.error("--output must be outside target repository to preserve read-only behavior")
+
+    report = run_study(repo_path, args.max_commits)
+    rendered = json.dumps(report, indent=2, sort_keys=True)
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(rendered + "\n", encoding="utf-8")
+    else:
+        print(rendered)
+
+
+if __name__ == "__main__":
+    main()
