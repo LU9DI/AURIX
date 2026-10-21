@@ -50,3 +50,12 @@ python research/tax-rules-as-data/build_review_sample.py tax-data-screen.json --
 ```
 
 The sampler deduplicates by `(commit, path)`, computes `SHA-256(commit + NUL + path)`, and selects the lowest hashes. Reviewers should fill `primary_label`, `reviewer`, `confidence`, and `rationale` according to the protocol. The worksheet is an operational aid; it does not inspect diffs or assign labels automatically.
+
+
+After filling the review worksheet, summarize the labels with:
+
+```bash
+python research/tax-rules-as-data/summarize_review.py tax-data-review.csv --output tax-data-review-summary.json
+```
+
+The summary validates the five allowed labels, reports unlabelled rows separately, and calculates proportions only over labelled sample units. It explicitly describes the result as a screened-sample statistic, not a historical conversion percentage.
