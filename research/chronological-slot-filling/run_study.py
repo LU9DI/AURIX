@@ -68,7 +68,11 @@ def shape_and_slots(line: str) -> tuple[str, list[str]]:
 
 def run_study(repo: Path, max_commits: int = 200) -> dict:
     repo = repo.resolve()
-    try:\n        commits = git(repo, "log", "--reverse", "--no-merges", "--format=%H").splitlines()\n    except subprocess.CalledProcessError:\n        # A valid but unborn repository has no history to evaluate.\n        commits = []
+    try:
+        commits = git(repo, "log", "--reverse", "--no-merges", "--format=%H").splitlines()
+    except subprocess.CalledProcessError:
+        # A valid but unborn repository has no history to evaluate.
+        commits = []
     if max_commits > 0:
         commits = commits[-max_commits:]
     prior_exact: collections.Counter[str] = collections.Counter()
