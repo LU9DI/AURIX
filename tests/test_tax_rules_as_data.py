@@ -94,3 +94,30 @@ def test_run_study_on_temporary_git_repo(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     saved_report = json.loads(output_outside_repo.read_text(encoding="utf-8"))
     assert saved_report["commits_evaluated"] == 1
+
+
+
+def test_build_review_sample_is_deterministic_deduplicated_and_source_free():
+    sampler_path = Path(__file__).resolve().parents[1] / "research/tax-rules-as-data/build_review_sample.py"
+    sampler = runpy.run_path(str(sampler_path))["build_sample"]
+    report = {
+        "commits": [
+            {"commit": "abc123", "rule_signal_files": [
+                {"path": "src/tax.ts", "matching_added_lines": 2},
+                {"path": "rules.json", "matching_added_lines": 1},
+                {"path": "src/tax.ts", "matching_added_lines": 3},
+            ]},
+            {"commit": "def456", "rule_signal_files": [
+                {"path": "src/tax.ts", "matching_added_lines": 1},
+            ]},
+        ]
+    }
+    sample = sampler(report, limit=2)
+    assert len(sample) == 2
+    assert len({(row["commit"], row["path"]) for row in sample}) == 2
+    assert [row["sample_order_sha256"] for row in sample] == sorted(
+        row["sample_order_sha256"] for row in sample
+    )
+    assert all(row["primary_label"] == "" for row in sample)
+    assert all("matching_added_lines" not in row for row in sample)
+    assert sampler(report, limit=2) == sample
