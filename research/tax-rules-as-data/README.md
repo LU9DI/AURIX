@@ -6,8 +6,9 @@ Run against an existing local clone of `tax-platform-br`:
 python research/tax-rules-as-data/run_study.py /path/to/tax-platform-br --output tax-data-screen.json
 ```
 
-The script reads Git history only; it does not clone, check out, modify, or execute the target
-repository. It reports changed-line counts grouped by likely declarative files, schema/migration
+The output path must be outside the analyzed repository; the script rejects an output path inside
+the target tree so the report cannot accidentally dirty the repository. The script reads Git history
+only; it does not clone, check out, modify, or execute the target repository. It reports changed-line counts grouped by likely declarative files, schema/migration
 files, application code, and other files. It also counts added lines containing a small set of
 tax-rule terms such as brackets, rates, limits, and Fator R.
 
