@@ -96,3 +96,22 @@ def test_cli_rejects_ngram_order_above_provider_limit() -> None:
     )
     assert result.returncode == 2
     assert "--order must be between 1 and 16" in result.stderr
+
+
+def test_files_under_uses_case_insensitive_directory_and_extension_filters(tmp_path: Path) -> None:
+    (tmp_path / "UPPER.PY").write_text("SAFE = True\\n", encoding="utf-8")
+    for dirname, filename, payload in (
+        (".GIT", "history.py", b"LEAK_GIT = True\\n"),
+        ("Node_Modules", "dependency.js", b"LEAK_DEP = True\\n"),
+        (".VENV", "installed.py", b"LEAK_VENV = True\\n"),
+    ):
+        folder = tmp_path / dirname
+        folder.mkdir()
+        (folder / filename).write_bytes(payload)
+
+    rows = _RUN.files_under(tmp_path, max_file_bytes=1024)
+    by_path = dict(rows)
+
+    assert "UPPER.PY" in by_path
+    assert by_path["UPPER.PY"] == b"SAFE = True\\n"
+    assert not any(b"LEAK_" in content for _, content in rows)
