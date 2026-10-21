@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from aurix.tools.structural_graph import build_structural_graph
 from aurix.tools.workspace import list_files, read_text
 
 MAX_PYTHON_FILES = 300
@@ -156,6 +157,7 @@ def analyze_python_code(
         "files": files,
         "symbols": symbols,
         "relations": relations,
+        "graph": build_structural_graph(files, relations),
         "errors": errors[:100],
         "truncated": truncated or len(symbols) >= MAX_SYMBOLS or len(relations) >= MAX_RELATIONS,
         "execution_performed": False,
