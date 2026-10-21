@@ -4,7 +4,7 @@ import pytest
 
 from aurix.orchestrator import Orchestrator
 from aurix.tools.code_model import analyze_python_code
-from aurix.tools.structural_graph import build_structural_graph, compare_graph_snapshots
+from aurix.tools.structural_graph import _cycles, build_structural_graph, compare_graph_snapshots
 
 
 def test_python_code_model_extracts_symbols_imports_calls_and_hash(tmp_path):
@@ -262,3 +262,16 @@ def test_python_graph_resolves_imported_package_submodule(tmp_path):
         edge["source"] == "client" and edge["target"] == "pkg.submodule"
         for edge in graph["edges"]
     )
+
+
+def test_cycle_detection_handles_graphs_deeper_than_python_recursion_limit():
+    count = 1800
+    nodes = {f"pkg.m{i:04d}" for i in range(count)}
+    ordered = sorted(nodes)
+    edges = [
+        {"kind": "imports", "source": ordered[i], "target": ordered[i + 1]}
+        for i in range(count - 1)
+    ]
+    edges.append({"kind": "imports", "source": ordered[-1], "target": ordered[0]})
+
+    assert _cycles(nodes, edges) == [ordered]
