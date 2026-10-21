@@ -138,3 +138,24 @@ def test_incremental_graph_comparison_invalidates_transitive_dependents():
     assert result["changed_files"] == ["pkg/a.py"]
     assert result["affected_modules"] == ["pkg.a", "pkg.b", "pkg.c"]
     assert result["invalidated_files"] == ["pkg/a.py", "pkg/b.py", "pkg/c.py"]
+
+
+
+def test_incremental_graph_comparison_invalidates_deleted_modules():
+    previous = {
+        "nodes": [
+            {"module": "pkg.a", "path": "pkg/a.py", "sha256": "old-a"},
+            {"module": "pkg.b", "path": "pkg/b.py", "sha256": "same-b"},
+        ],
+        "edges": [{"kind": "imports", "source": "pkg.b", "target": "pkg.a"}],
+    }
+    current = {
+        "nodes": [{"module": "pkg.b", "path": "pkg/b.py", "sha256": "same-b"}],
+        "edges": [],
+    }
+
+    result = compare_graph_snapshots(previous, current)
+
+    assert result["removed_files"] == ["pkg/a.py"]
+    assert "pkg/a.py" in result["invalidated_files"]
+    assert "pkg/b.py" in result["invalidated_files"]
