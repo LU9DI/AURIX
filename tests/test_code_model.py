@@ -179,7 +179,7 @@ def test_incremental_graph_comparison_invalidates_deleted_modules():
 
 def test_orchestrator_tracks_incremental_structural_snapshots(tmp_path):
     source = tmp_path / "module.py"
-    source.write_text("def first(): return 1\\n", encoding="utf-8")
+    source.write_text("def first(): return 1\n", encoding="utf-8")
 
     class UnusedProvider:
         def generate(self, prompt, *, system=""):
@@ -187,7 +187,7 @@ def test_orchestrator_tracks_incremental_structural_snapshots(tmp_path):
 
     orchestrator = Orchestrator(UnusedProvider(), workspace=tmp_path)
     first = json.loads(orchestrator._call_tool("analyze_python_code", {}))
-    source.write_text("def second(): return 2\\n", encoding="utf-8")
+    source.write_text("def second(): return 2\n", encoding="utf-8")
     second = json.loads(orchestrator._call_tool("analyze_python_code", {}))
 
     assert first["graph"]["incremental"]["status"] == "baseline_created"
