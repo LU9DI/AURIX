@@ -11,7 +11,7 @@ import random
 import time
 from pathlib import Path
 
-from aurix.providers.ngram import NgramModel
+from aurix.providers.ngram import MAX_ORDER, NgramModel
 
 EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".rs", ".go", ".java", ".sql", ".sh"}
 SKIP_DIRS = {
@@ -181,8 +181,8 @@ def main() -> None:
     if min(args.steps, args.seq_len, args.batch_size, args.hidden_size,
            args.max_eval_bytes, args.max_train_bytes, args.max_file_bytes) < 1:
         parser.error("steps, sequence length, batch size, hidden size and byte limits must be positive")
-    if args.order < 1:
-        parser.error("--order must be a positive integer")
+    if not 1 <= args.order <= MAX_ORDER:
+        parser.error(f"--order must be between 1 and {MAX_ORDER}")
 
     rows = files_under(args.root, args.max_file_bytes)
     train_rows, test_rows = split_files(rows)
