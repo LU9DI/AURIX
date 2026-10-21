@@ -25,6 +25,10 @@ algorithm changes, and (c) what needs both.
 No DSL is proposed by this script. The goal is to establish a measured ceiling before designing
 a declarative schema and invariant checks.
 
+The reproducible follow-up procedure is documented in [manual-review-protocol.md](manual-review-protocol.md).
+It defines deterministic sample selection, labels for data-only versus algorithmic changes, and limits
+on interpreting the resulting proportions.
+
 ## Manual architecture spot-check (not a historical percentage)
 
 A read-only spot-check of the current `tax-platform-br` tree found both sides of the boundary:
