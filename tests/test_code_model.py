@@ -103,6 +103,10 @@ def test_python_graph_resolves_local_imports_and_reports_cycles(tmp_path):
         "import package_not_in_workspace\\ndef helper(): return 1\\ndef caller(): return helper()\\n",
         encoding="utf-8",
     )
+    (package / "ambiguous.py").write_text(
+        "def helper(): return 1\\ndef helper(): return 2\\ndef caller(): return helper()\\n",
+        encoding="utf-8",
+    )
 
     result = analyze_python_code(tmp_path)
     graph = result["graph"]
@@ -115,6 +119,10 @@ def test_python_graph_resolves_local_imports_and_reports_cycles(tmp_path):
     assert any(item["target"] == "package_not_in_workspace" for item in graph["unresolved_imports"])
     assert any(
         item["target_symbol"] == "pkg.external.helper"
+        for item in graph["resolved_calls"]
+    )
+    assert not any(
+        item["target_symbol"] == "pkg.ambiguous.helper"
         for item in graph["resolved_calls"]
     )
 
