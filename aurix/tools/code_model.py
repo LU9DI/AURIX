@@ -134,15 +134,18 @@ def analyze_python_code(
                     targets = ["." * node.level + (node.module or "")]
                 for target in targets:
                     if len(relations) < MAX_RELATIONS:
-                        relations.append(
-                            {
-                                "kind": "imports",
-                                "source": module_name,
-                                "target": target,
-                                "path": relative,
-                                "line": node.lineno,
-                            }
-                        )
+                        relation = {
+                            "kind": "imports",
+                            "source": module_name,
+                            "target": target,
+                            "path": relative,
+                            "line": node.lineno,
+                        }
+                        if node.module is not None:
+                            relation["imported_names"] = [
+                                alias.name for alias in node.names if alias.name != "*"
+                            ]
+                        relations.append(relation)
             elif isinstance(node, ast.Call):
                 if len(relations) < MAX_RELATIONS:
                     relations.append(
