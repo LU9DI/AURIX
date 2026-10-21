@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import subprocess
+import sys
 from pathlib import Path
 
 _RUN_PATH = Path(__file__).resolve().parents[1] / "research" / "hybrid_benchmark" / "run.py"
@@ -47,3 +49,14 @@ def test_target_bpb_uses_each_position_not_the_target_as_a_position() -> None:
     second = [0.75 / 255] * 256
     second[7] = 0.25
     assert target_bpb([first, second], bytes([200, 7])) == 1.5
+
+
+def test_cli_rejects_non_positive_ngram_order() -> None:
+    result = subprocess.run(
+        [sys.executable, str(_RUN_PATH), "--order", "0"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "--order must be a positive integer" in result.stderr
