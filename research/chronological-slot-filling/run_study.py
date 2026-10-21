@@ -12,9 +12,9 @@ import re
 import subprocess
 from pathlib import Path
 
-IDENTIFIER = re.compile(r"(?<![.\\w])(?:[A-Za-z_$][\\w$]*)(?!\\w)")
-NUMBER = re.compile(r"\\b\\d+(?:\\.\\d+)?\\b")
-STRING = re.compile(r"""(['"]).*?\\1""")
+IDENTIFIER = re.compile(r"(?<![.\w])(?:[A-Za-z_$][\w$]*)(?!\w)")
+NUMBER = re.compile(r"\b\d+(?:\.\d+)?\b")
+STRING = re.compile(r"""(['"]).*?\1""")
 KEYWORDS = {
     "and", "as", "assert", "async", "await", "break", "case", "catch", "class",
     "const", "continue", "def", "del", "elif", "else", "except", "false", "False",
@@ -156,7 +156,7 @@ def main() -> None:
     rendered = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered + "\\n", encoding="utf-8")
+        args.output.write_text(rendered + "\n", encoding="utf-8")
     else:
         print(rendered)
 
