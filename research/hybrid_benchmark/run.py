@@ -149,7 +149,6 @@ def score_models(model, neural, test_rows, max_eval_bytes: int, device: str):
             model.next_distribution(sample[:i + 1]) for i in range(len(sample) - 1)
         ]
         ngram_probs = torch.tensor(ngram_rows, dtype=torch.float64, device=device)
-        ngram_target_probs = ngram_probs.gather(1, target.unsqueeze(1)).squeeze(1)
         neural_probs = neural_lp.exp().to(torch.float64)
         totals["ngram"] += target_bpb(ngram_rows, sample[1:]) * len(target)
         totals["neural"] += float(-neural_lp.gather(1, target.unsqueeze(1)).sum().item() / math.log(2))
