@@ -42,6 +42,46 @@ def test_hunks_rejects_non_git_directory(tmp_path):
         raise AssertionError("hunks() must not treat git failures as an empty history")
 
 
+def test_study_runner_records_snapshot_provenance(tmp_path):
+    import importlib.util
+    import json
+    import subprocess
+
+    runner_path = Path(__file__).resolve().parents[1] / "research" / "coverage-study" / "run_study.py"
+    runner_spec = importlib.util.spec_from_file_location("coverage_run_study", runner_path)
+    assert runner_spec is not None and runner_spec.loader is not None
+    runner = importlib.util.module_from_spec(runner_spec)
+    runner_spec.loader.exec_module(runner)
+
+    repo = tmp_path / "repo-provenance"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "aurix-test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "AURIX test"], check=True)
+    source = repo / "module.py"
+    source.write_text("def before():\n    return 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "module.py"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "initial"], check=True)
+    source.write_text("def after():\n    return 2\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "commit", "-am", "change"], check=True, capture_output=True)
+
+    output = tmp_path / "results.jsonl"
+    runner.main(["run_study.py", str(output), str(repo)])
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+
+    assert len(rows) == 1
+    row = rows[0]
+    expected_commit = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    assert row["snapshot_commit"] == expected_commit
+    assert row["origin_url"] is None
+    assert row["is_shallow"] is False
+    assert row["history_depth_commits"] == 2
+    assert len(row["classifier_sha256"]) == 64
+    assert row["hunks"] > 0
+
+
 def test_hunks_preserves_removed_file_changes(tmp_path):
     import subprocess
 
