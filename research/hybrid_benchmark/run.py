@@ -24,15 +24,17 @@ def files_under(root: Path, max_file_bytes: int) -> list[tuple[str, bytes]]:
     """Read deterministic, UTF-8 source files without following symlinks."""
     rows: list[tuple[str, bytes]] = []
     root = root.resolve()
+    skipped_dirs = {name.casefold() for name in SKIP_DIRS}
+    extensions = {suffix.casefold() for suffix in EXTENSIONS}
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         directory = Path(dirpath)
         dirnames[:] = sorted(
             name for name in dirnames
-            if name not in SKIP_DIRS and not (directory / name).is_symlink()
+            if name.casefold() not in skipped_dirs and not (directory / name).is_symlink()
         )
         for name in sorted(filenames):
             path = directory / name
-            if path.is_symlink() or path.suffix not in EXTENSIONS:
+            if path.is_symlink() or path.suffix.casefold() not in extensions:
                 continue
             try:
                 if path.stat().st_size > max_file_bytes:
