@@ -14,6 +14,8 @@ def test_classify_path_is_conservative_and_explained():
     assert classify("data/fator-r.csv") == "declarative_candidate"
     assert classify("src/services/calculator.ts") == "application_code"
     assert classify("prisma/schema.prisma") == "schema_or_data_candidate"
+    assert classify("migrations/20261005_rule_update.sql") == "schema_or_data_candidate"
+    assert classify("data/rules.json") == "declarative_candidate"
 
 
 def test_parse_numstat_skips_binary_and_counts_added_plus_deleted():
