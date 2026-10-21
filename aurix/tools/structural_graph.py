@@ -87,10 +87,20 @@ def build_structural_graph(
         for item in files
         if item.get("status") == "parsed" and item.get("path", "").endswith(".py")
     }
-    path_to_module = {path: _module_name(path) for path in by_path}
+    paths_by_module: dict[str, list[str]] = defaultdict(list)
+    for path in by_path:
+        module = _module_name(path)
+        if module:
+            paths_by_module[module].append(path)
+    ambiguous_modules = sorted(
+        module for module, paths in paths_by_module.items() if len(paths) > 1
+    )
     module_to_path = {
-        module: path for path, module in path_to_module.items() if module
+        module: paths[0]
+        for module, paths in paths_by_module.items()
+        if len(paths) == 1
     }
+    valid_paths = set(module_to_path.values())
     modules = set(module_to_path)
     nodes = [
         {"module": module, "path": module_to_path[module], "sha256": by_path[module_to_path[module]].get("sha256", "")}
@@ -110,7 +120,7 @@ def build_structural_graph(
             path = relation.get("path", "")
             if (
                 source in modules
-                and path in by_path
+                and path in valid_paths
                 and target.isidentifier()
                 and symbol_counts[source].get(target, 0) == 1
             ):
@@ -127,7 +137,7 @@ def build_structural_graph(
         source = relation.get("source", "")
         path = relation.get("path", "")
         target = relation.get("target", "")
-        if source not in modules or path not in by_path:
+        if source not in modules or path not in valid_paths:
             continue
         resolved = _resolve_import(path, target, modules)
         evidence = {"source": source, "target": target, "path": path, "line": relation.get("line", 1)}
@@ -141,6 +151,7 @@ def build_structural_graph(
         "unresolved_imports": sorted(unresolved, key=lambda item: (item["path"], item["line"])),
         "resolved_calls": sorted(resolved_calls, key=lambda item: (item["path"], item["line"])),
         "cycles": _cycles(modules, edges),
+        "ambiguous_modules": ambiguous_modules,
         "resolution": "local_modules_only",
     }
 
