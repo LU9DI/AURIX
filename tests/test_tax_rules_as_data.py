@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import runpy
 import subprocess
+import sys
 from pathlib import Path
 
 _MODULE = runpy.run_path(
@@ -57,3 +58,14 @@ def test_run_study_on_temporary_git_repo(tmp_path: Path):
     rendered = str(report)
     assert "const aliquota" not in rendered
     assert str(repo) not in rendered
+
+    script = Path(__file__).resolve().parents[1] / "research/tax-rules-as-data/run_study.py"
+    output_inside_repo = repo / "report.json"
+    result = subprocess.run(
+        [sys.executable, str(script), str(repo), "--output", str(output_inside_repo)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "outside target repository" in result.stderr
+    assert not output_inside_repo.exists()
