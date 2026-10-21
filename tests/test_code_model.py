@@ -100,11 +100,11 @@ def test_python_graph_resolves_local_imports_and_reports_cycles(tmp_path):
     (package / "a.py").write_text("from .b import run\ndef start(): return run()\n", encoding="utf-8")
     (package / "b.py").write_text("from .a import start\ndef run(): return start()\n", encoding="utf-8")
     (package / "external.py").write_text(
-        "import package_not_in_workspace\\ndef helper(): return 1\\ndef caller(): return helper()\\n",
+        "import package_not_in_workspace\ndef helper(): return 1\ndef caller(): return helper()\n",
         encoding="utf-8",
     )
     (package / "ambiguous.py").write_text(
-        "def helper(): return 1\\ndef helper(): return 2\\ndef caller(): return helper()\\n",
+        "def helper(): return 1\ndef helper(): return 2\ndef caller(): return helper()\n",
         encoding="utf-8",
     )
 
