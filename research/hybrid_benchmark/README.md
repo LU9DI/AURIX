@@ -18,7 +18,7 @@ The default neural run trains a small byte-level GRU for 400 optimization steps 
 
 - Source files are sorted and grouped by the SHA-256 hash of their exact bytes. All byte-identical files stay in the same partition, even if their paths differ.
 - Unique content groups are assigned deterministically to train/test buckets (approximately 80/20). If the hash buckets put all groups on one side, a deterministic fallback moves one whole content group, never an individual duplicate, to test. If the corpus contains only one unique content group, no leakage-free test partition exists and the run stops with an actionable error.
-- Output records Python/platform/library versions, seed, configuration, source-file hashes, byte counts, elapsed training/inference time, parameter count, BPB and an analytical estimate of GRU forward FLOPs per predicted byte.
+- Output records Python/platform/library versions, seed, configuration, source-file hashes, each file's train/test partition, the exact number of bytes contributed by each training file, elapsed training/inference time, parameter count, BPB and an analytical estimate of GRU forward FLOPs per predicted byte. The shareable config stores only the root directory name, not its absolute local path.
 - The n-gram model is trained on training files only. Held-out files are scored independently.
 - Hybrid prediction mixes normalized probabilities: `p = alpha * p_gru + (1-alpha) * p_ngram`, with alpha in {0, 0.25, 0.5, 0.75, 1}. A smaller BPB is better.
 - Evaluation currently scores deterministic prefixes from held-out files, not every held-out byte. This is an explicit runtime bound, not a full-corpus score.
