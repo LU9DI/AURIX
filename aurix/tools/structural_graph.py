@@ -98,17 +98,22 @@ def build_structural_graph(
     ]
     edges: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
-    symbol_names: dict[str, set[str]] = defaultdict(set)
+    symbol_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for symbol in symbols or []:
         if symbol.get("module") in modules and isinstance(symbol.get("name"), str):
-            symbol_names[symbol["module"]].add(symbol["name"])
+            symbol_counts[symbol["module"]][symbol["name"]] += 1
     resolved_calls: list[dict[str, Any]] = []
     for relation in relations:
         if relation.get("kind") == "calls":
             source = relation.get("source", "")
             target = relation.get("target", "")
             path = relation.get("path", "")
-            if source in modules and path in by_path and target.isidentifier() and target in symbol_names[source]:
+            if (
+                source in modules
+                and path in by_path
+                and target.isidentifier()
+                and symbol_counts[source].get(target, 0) == 1
+            ):
                 resolved_calls.append({
                     "source_module": source,
                     "target_symbol": f"{source}.{target}",
