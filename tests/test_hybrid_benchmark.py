@@ -24,6 +24,32 @@ def test_split_is_deterministic_and_keeps_files_whole() -> None:
     assert len(train_a) + len(test_a) == len(rows)
 
 
+def test_identical_contents_never_cross_train_test_boundary() -> None:
+    rows = [
+        ("src/copy_a.py", b"duplicate payload"),
+        ("src/copy_b.py", b"duplicate payload"),
+        ("src/unique_a.py", b"unique payload A"),
+        ("src/unique_b.py", b"unique payload B"),
+        ("src/unique_c.py", b"unique payload C"),
+    ]
+    train, test = split_files(rows)
+    train_contents = {content for _, content in train}
+    test_contents = {content for _, content in test}
+    assert train and test
+    assert not (train_contents & test_contents)
+    assert len(train) + len(test) == len(rows)
+    assert {name for name, content in train + test if content == b"duplicate payload"} == {
+        "src/copy_a.py", "src/copy_b.py"
+    }
+
+
+def test_split_returns_no_test_set_for_only_duplicate_content() -> None:
+    rows = [("a.py", b"same"), ("b.py", b"same"), ("c.py", b"same")]
+    train, test = split_files(rows)
+    assert len(train) == len(rows)
+    assert test == []
+
+
 def test_bpb_uses_base_two_and_rejects_empty_input() -> None:
     import pytest
 
@@ -40,7 +66,6 @@ def test_bpb_uses_base_two_and_rejects_empty_input() -> None:
     assert bpb(FakeLogProbabilities()) == 1.0
     with pytest.raises(ValueError, match="empty"):
         bpb([])
-
 
 
 def test_target_bpb_uses_each_position_not_the_target_as_a_position() -> None:
