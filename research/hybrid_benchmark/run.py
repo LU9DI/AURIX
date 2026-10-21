@@ -136,7 +136,7 @@ def score_models(model, neural, test_rows, max_eval_bytes: int, device: str):
         for i in range(len(sample) - 1):
             probs = model.next_distribution(sample[:i + 1])
             ngram_lp.append(max(float(probs[sample[i + 1]]), 1e-12))
-        ngram_lp_t = torch.tensor(ngram_lp, dtype=torch.float64)
+        ngram_t = torch.tensor(ngram_lp, dtype=torch.float64)
         neural_probs = neural_lp.exp().to(torch.float64)
         ngram_probs = torch.zeros_like(neural_probs)
         target = torch.tensor(list(sample[1:]), dtype=torch.long, device=device)
