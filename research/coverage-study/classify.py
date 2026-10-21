@@ -205,4 +205,7 @@ def main(repo):
     )
 
 
-main(sys.argv[1])
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: classify.py REPO")
+    main(sys.argv[1])
