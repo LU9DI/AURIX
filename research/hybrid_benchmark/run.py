@@ -58,11 +58,6 @@ def join_files(rows: list[tuple[str, bytes]]) -> bytes:
     return b"\n\x00\n".join(data for _, data in rows)
 
 
-def score_ngram(model: NgramModel, data: bytes) -> float:
-    # Score each held-out file independently so no synthetic boundary is introduced.
-    raise NotImplementedError("Use score_ngram_files; retained to prevent accidental pooled scoring.")
-
-
 def score_ngram_files(model: NgramModel, rows: list[tuple[str, bytes]]) -> float:
     weighted = 0.0
     total = 0
@@ -81,6 +76,7 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20261020)
     parser.add_argument("--order", type=int, default=6)
     parser.add_argument("--steps", type=int, default=400)
+    parser.add_argument("--max-eval-bytes", type=int, default=25000)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--sequence-length", type=int, default=128)
     parser.add_argument("--hidden-size", type=int, default=128)
@@ -101,7 +97,13 @@ def main() -> int:
     torch.use_deterministic_algorithms(True, warn_only=True)
     root = args.root.resolve()
     rows = files_under(root, max_file_bytes=300_000)
-    train_rows, test_rows = split_files(rows)
+    train_rows, test_rows_full = split_files(rows)
+    if args.max_eval_bytes < 2:
+        raise SystemExit("--max-eval-bytes must be at least 2")
+    # Bound the expensive per-byte hybrid loop; allocate a deterministic prefix budget per file.
+    budget_per_file = max(2, args.max_eval_bytes // len(test_rows_full))
+    test_rows = [(path, data[:budget_per_file]) for path, data in test_rows_full if len(data) >= 2]
+    test_rows = test_rows[: max(1, args.max_eval_bytes // 2)]
     train_bytes = join_files(train_rows)
     test_bytes = join_files(test_rows)
     if len(train_bytes) < args.sequence_length + 2 or not test_bytes:
@@ -153,7 +155,7 @@ def main() -> int:
 
     def evaluate_neural_and_hybrid():
         # Sequential scoring per file; the model sees preceding bytes in the same file only.
-        nll_neural = nll_hybrid = 0.0
+        nll_neural = 0.0
         count = 0
         lambdas = [0.0, 0.25, 0.5, 0.75, 1.0]  # weight on neural probabilities
         hybrid_nll = {str(v): 0.0 for v in lambdas}
@@ -200,7 +202,7 @@ def main() -> int:
         "root_label": root.name,
         "source_file_count": len(rows),
         "train_files": [{"path": p, "sha256": hashlib.sha256(d).hexdigest(), "bytes": len(d)} for p, d in train_rows],
-        "test_files": [{"path": p, "sha256": hashlib.sha256(d).hexdigest(), "bytes": len(d)} for p, d in test_rows],
+        "test_files": [{"path": p, "sha256": hashlib.sha256(next(raw for original_path, raw in test_rows_full if original_path == p)).hexdigest(), "file_bytes": len(next(raw for original_path, raw in test_rows_full if original_path == p)), "scored_prefix_bytes": len(d)} for p, d in test_rows],
         "train_bytes_with_separators": len(train_bytes),
         "test_bytes_raw": sum(len(d) for _, d in test_rows),
         "config": vars(args) | {"root": str(root), "output": str(args.output)},
@@ -215,7 +217,8 @@ def main() -> int:
         "method_notes": [
             "File-level deterministic split prevents same file from appearing in both train and test.",
             "The split is by normalized path hash, not commit time; disclose that limitation.",
-            "The n-gram model is trained on joined training files but scored per test file.",
+            "The n-gram model is trained on joined training files but scored per test-file prefix.",
+            "Evaluation is capped by --max-eval-bytes to bound CPU; only deterministic file prefixes are scored.",
             "Hybrid combines normalized next-byte probabilities, not logits.",
             "FLOPs are an analytic estimate for GRU forward operations, not a hardware counter.",
             "One seed and one split are exploratory; repeat seeds before making a claim.",
