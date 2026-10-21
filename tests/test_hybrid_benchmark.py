@@ -9,7 +9,7 @@ _SPEC = importlib.util.spec_from_file_location("aurix_hybrid_benchmark_run", _RU
 assert _SPEC is not None and _SPEC.loader is not None
 _RUN = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_RUN)
-bpb, split_files = _RUN.bpb, _RUN.split_files
+bpb, split_files, target_bpb = _RUN.bpb, _RUN.split_files, _RUN.target_bpb
 
 
 def test_split_is_deterministic_and_keeps_files_whole() -> None:
@@ -38,3 +38,12 @@ def test_bpb_uses_base_two_and_rejects_empty_input() -> None:
     assert bpb(FakeLogProbabilities()) == 1.0
     with pytest.raises(ValueError, match="empty"):
         bpb([])
+
+
+
+def test_target_bpb_uses_each_position_not_the_target_as_a_position() -> None:
+    first = [0.5 / 255] * 256
+    first[200] = 0.5
+    second = [0.75 / 255] * 256
+    second[7] = 0.25
+    assert target_bpb([first, second], bytes([200, 7])) == 1.5
