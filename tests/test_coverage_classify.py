@@ -59,8 +59,10 @@ def test_hunks_extracts_changes_from_git_history(tmp_path):
 
     rows = list(CLASSIFIER.hunks(str(repo)))
 
-    assert len(rows) == 1
-    _, message, path, deleted, added = rows[0]
+    # Git history includes the initial commit's file-addition hunk as well.
+    changed = [row for row in rows if row[1] == "change"]
+    assert len(changed) == 1
+    _, message, path, deleted, added = changed[0]
     assert message == "change"
     assert path == "module.py"
     assert deleted == ["def before():", "    return 1"]
