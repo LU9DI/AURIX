@@ -115,3 +115,15 @@ def test_files_under_uses_case_insensitive_directory_and_extension_filters(tmp_p
     assert "UPPER.PY" in by_path
     assert by_path["UPPER.PY"] == b"SAFE = True\\n"
     assert not any(b"LEAK_" in content for _, content in rows)
+
+
+
+def test_build_training_blob_records_exact_contribution_and_respects_byte_limit() -> None:
+    from runpy import run_path
+
+    helper = run_path(str(_RUN_PATH))["build_training_blob"]
+    rows = [("a.py", b"12345"), ("b.py", b"abcdef")]
+    blob, used = helper(rows, max_bytes=10)
+    assert len(blob) <= 10
+    assert blob == b"12345\n\x00\n"
+    assert used == {"a.py": 5}
