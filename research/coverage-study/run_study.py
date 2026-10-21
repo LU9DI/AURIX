@@ -70,9 +70,9 @@ def main(argv):
     # Fail before replacing output if any supplied path is not a Git repository.
     results = [analyze(repo) for repo in repos]
     output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8", newline="\\n") as stream:
+    with output.open("w", encoding="utf-8", newline="\n") as stream:
         for row in results:
-            stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\\n")
+            stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":
