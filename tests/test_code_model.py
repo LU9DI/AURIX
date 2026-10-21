@@ -4,7 +4,7 @@ import pytest
 
 from aurix.orchestrator import Orchestrator
 from aurix.tools.code_model import analyze_python_code
-from aurix.tools.structural_graph import compare_graph_snapshots
+from aurix.tools.structural_graph import build_structural_graph, compare_graph_snapshots
 
 
 def test_python_code_model_extracts_symbols_imports_calls_and_hash(tmp_path):
@@ -194,3 +194,23 @@ def test_orchestrator_tracks_incremental_structural_snapshots(tmp_path):
     changes = second["graph"]["incremental"]["changes"]
     assert changes["changed_files"] == ["module.py"]
     assert changes["invalidated_files"] == ["module.py"]
+
+
+
+def test_structural_graph_excludes_ambiguous_module_paths():
+    files = [
+        {"path": "pkg.py", "status": "parsed", "sha256": "flat"},
+        {"path": "pkg/__init__.py", "status": "parsed", "sha256": "package"},
+        {"path": "client.py", "status": "parsed", "sha256": "client"},
+    ]
+    relations = [
+        {"kind": "imports", "source": "pkg", "target": "pkg", "path": "client.py", "line": 1},
+        {"kind": "imports", "source": "pkg", "target": "pkg", "path": "pkg.py", "line": 1},
+    ]
+
+    graph = build_structural_graph(files, relations)
+
+    assert graph["ambiguous_modules"] == ["pkg"]
+    assert [node["module"] for node in graph["nodes"]] == ["client"]
+    assert graph["edges"] == []
+    assert graph["unresolved_imports"] == []
