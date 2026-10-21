@@ -84,11 +84,19 @@ def run_study(repo: Path, max_commits: int = 0) -> dict:
         # Scan added lines in all files; only counts are retained, never source text.
         patch = git(repo, "show", "--format=", "--no-ext-diff", "--unified=0", commit)
         relevant_added = 0
+        current_path = None
+        matching_by_path = collections.Counter()
         for line in patch.splitlines():
-            if not line.startswith("+") or line.startswith("+++"):
+            if line.startswith("+++ "):
+                header_path = line[4:]
+                current_path = header_path[2:] if header_path.startswith("b/") else None
+                continue
+            if not line.startswith("+"):
                 continue
             if RULE_SIGNAL.search(line[1:]):
                 relevant_added += 1
+                if current_path:
+                    matching_by_path[current_path] += 1
         if relevant_added:
             rule_related_lines["added_lines_with_tax_rule_terms"] += relevant_added
         commit_rows.append({
@@ -96,6 +104,10 @@ def run_study(repo: Path, max_commits: int = 0) -> dict:
             "files_changed": len(files),
             "changed_lines_by_class": dict(counts),
             "added_lines_with_tax_rule_terms": relevant_added,
+            "rule_signal_files": [
+                {"path": path, "matching_added_lines": count}
+                for path, count in sorted(matching_by_path.items())
+            ],
         })
 
     total = sum(by_class.values())
