@@ -135,11 +135,21 @@ def main() -> None:
     parser.add_argument("--max-commits", type=int, default=0, help="most recent non-merge commits; 0 means all")
     parser.add_argument("--output", type=Path, help="write JSON report")
     args = parser.parse_args()
-    report = run_study(args.repo, args.max_commits)
+    repo_path = args.repo.resolve()
+    output_path = args.output.resolve() if args.output else None
+    if output_path is not None:
+        try:
+            output_path.relative_to(repo_path)
+        except ValueError:
+            pass
+        else:
+            parser.error("--output must be outside target repository to preserve read-only behavior")
+
+    report = run_study(repo_path, args.max_commits)
     rendered = json.dumps(report, indent=2, sort_keys=True)
-    if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered + "\n", encoding="utf-8")
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(rendered + "\n", encoding="utf-8")
     else:
         print(rendered)
 
