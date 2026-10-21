@@ -18,7 +18,6 @@ SCHEMA_EXTENSIONS = {".sql", ".prisma"}
 CODE_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".py"}
 DATA_PATH = re.compile(r"(^|/)(data|fixtures|rules|tables|rates|constants|config|migrations?)(/|$)", re.I)
 RULE_SIGNAL = re.compile(r"\b(?:faixa|fator.?r|anexo|aliquota|al[ií]quota|limite|threshold|bracket|rate|tax.?rule)\b", re.I)
-DECLARATIVE_SIGNAL = re.compile(r"^\s*(?:[\w.-]+\s*:\s*|[\w.-]+\s*,|INSERT\s+INTO|UPDATE\s+\w+\s+SET|ALTER\s+TABLE)", re.I)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -29,11 +28,14 @@ def git(repo: Path, *args: str) -> str:
 
 
 def classify_path(path: str) -> str:
-    p = Path(path)
-    if DATA_PATH.search(path.replace("\\", "/")) or p.suffix.lower() in DATA_EXTENSIONS:
-        return "declarative_candidate"
-    if p.suffix.lower() in SCHEMA_EXTENSIONS:
+    normalized = path.replace("\\", "/")
+    suffix = Path(normalized).suffix.lower()
+    # SQL migrations are schema/data changes, not plain declarative data files.
+    # Check this before DATA_PATH because "migrations" is a candidate directory.
+    if suffix in SCHEMA_EXTENSIONS:
         return "schema_or_data_candidate"
+    if DATA_PATH.search(normalized) or suffix in DATA_EXTENSIONS:
+        return "declarative_candidate"
     if p.suffix.lower() in CODE_EXTENSIONS:
         return "application_code"
     return "other"
@@ -70,7 +72,7 @@ def run_study(repo: Path, max_commits: int = 0) -> dict:
         commits = commits[-max_commits:]
     by_class = collections.Counter()
     by_extension = collections.Counter()
-    rule_related_code = collections.Counter()
+    rule_related_lines = collections.Counter()
     commit_rows = []
     for commit in commits:
         stat = git(repo, "show", "--format=", "--no-renames", "--numstat", commit)
@@ -80,7 +82,7 @@ def run_study(repo: Path, max_commits: int = 0) -> dict:
             by_class[row["class"]] += row["changed_lines"]
             by_extension[Path(row["path"]).suffix.lower() or "<no extension>"] += row["changed_lines"]
             counts[row["class"]] += row["changed_lines"]
-        # Scan added lines only in code files, without retaining source in output.
+        # Scan added lines in all files; only counts are retained, never source text.
         patch = git(repo, "show", "--format=", "--no-ext-diff", "--unified=0", commit)
         relevant_added = 0
         for line in patch.splitlines():
@@ -89,7 +91,7 @@ def run_study(repo: Path, max_commits: int = 0) -> dict:
             if RULE_SIGNAL.search(line[1:]):
                 relevant_added += 1
         if relevant_added:
-            rule_related_code["added_lines_with_tax_rule_terms"] += relevant_added
+            rule_related_lines["added_lines_with_tax_rule_terms"] += relevant_added
         commit_rows.append({
             "commit": commit,
             "files_changed": len(files),
@@ -109,7 +111,7 @@ def run_study(repo: Path, max_commits: int = 0) -> dict:
             "changed_lines_by_class": dict(by_class),
             "changed_lines_by_extension": dict(by_extension),
             "declarative_or_schema_candidate_share": candidates / total if total else None,
-            "added_lines_containing_tax_rule_terms": rule_related_code["added_lines_with_tax_rule_terms"],
+            "added_lines_containing_tax_rule_terms": rule_related_lines["added_lines_with_tax_rule_terms"],
         },
         "protocol": {
             "history": "all non-merge commits in chronological order unless --max-commits is set",
@@ -119,7 +121,7 @@ def run_study(repo: Path, max_commits: int = 0) -> dict:
             "privacy": "report contains commit hashes and relative file paths, no source text or remote URL",
             "limitations": [
                 "candidate share is not the fraction of changes safely representable as data",
-                "classification may label configs or migrations as candidates even when they are not business rules",
+                "classification may label configs or non-rule SQL migrations as candidates even when they are not business rules",
                 "rules embedded in application code may be missed; matching tax terms is only a rough signal",
                 "a semantic review of candidate diffs is required before designing a DSL or schema",
             ],
