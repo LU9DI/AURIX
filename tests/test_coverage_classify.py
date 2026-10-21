@@ -42,6 +42,32 @@ def test_hunks_rejects_non_git_directory(tmp_path):
         raise AssertionError("hunks() must not treat git failures as an empty history")
 
 
+def test_hunks_preserves_removed_file_changes(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "repo-delete"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "aurix-test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "AURIX test"], check=True)
+    source = repo / "removed.py"
+    source.write_text("def obsolete():\\n    return True\\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "removed.py"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "initial"], check=True)
+    source.unlink()
+    subprocess.run(["git", "-C", str(repo), "add", "-u"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "remove module"], check=True)
+
+    rows = list(CLASSIFIER.hunks(str(repo)))
+    removed = [row for row in rows if row[1] == "remove module"]
+    assert len(removed) == 1
+    _, message, path, deleted, added = removed[0]
+    assert message == "remove module"
+    assert path == "removed.py"
+    assert deleted == ["def obsolete():", "    return True"]
+    assert added == []
+
+
 def test_hunks_extracts_changes_from_git_history(tmp_path):
     import subprocess
 
