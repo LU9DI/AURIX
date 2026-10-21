@@ -29,16 +29,18 @@ def git(repo, *args):
 
 
 def safe_origin(origin):
-    """Remove URL user-info so snapshots never persist embedded credentials."""
+    """Remove URL user-info, query strings, and fragments from HTTP(S) origins."""
     if not origin or "://" not in origin:
         return origin
     parsed = urlsplit(origin)
-    if parsed.username is None and parsed.password is None:
-        return origin
     host = parsed.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
     if parsed.port is not None:
         host = f"{host}:{parsed.port}"
-    return urlunsplit((parsed.scheme, host, parsed.path, parsed.query, parsed.fragment))
+    # Query strings and fragments can also contain access tokens. They are not
+    # needed to identify a Git remote for this study, so omit them unconditionally.
+    return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
 
 
 def snapshot_metadata(repo):
