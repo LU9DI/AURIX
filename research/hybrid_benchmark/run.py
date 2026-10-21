@@ -66,6 +66,17 @@ def bpb(log_probs) -> float:
     return float(-log_probs.sum().item() / (math.log(2) * len(log_probs)))
 
 
+def target_bpb(probability_rows, targets: bytes) -> float:
+    """Score each target byte against the probability row for its own position."""
+    if not targets or len(probability_rows) != len(targets):
+        raise ValueError("probability rows and targets must have the same non-zero length")
+    losses = [
+        -math.log2(max(float(row[target]), 1e-12))
+        for row, target in zip(probability_rows, targets)
+    ]
+    return sum(losses) / len(losses)
+
+
 def train_gru(train_bytes: bytes, steps: int, seq_len: int, batch_size: int,
               hidden_size: int, seed: int, device: str):
     import torch
@@ -140,9 +151,7 @@ def score_models(model, neural, test_rows, max_eval_bytes: int, device: str):
         ngram_probs = torch.tensor(ngram_rows, dtype=torch.float64, device=device)
         ngram_target_probs = ngram_probs.gather(1, target.unsqueeze(1)).squeeze(1)
         neural_probs = neural_lp.exp().to(torch.float64)
-        totals["ngram"] += float(
-            -torch.log2(ngram_target_probs.clamp_min(1e-12)).sum().item()
-        )
+        totals["ngram"] += target_bpb(ngram_rows, sample[1:]) * len(target)
         totals["neural"] += float(-neural_lp.gather(1, target.unsqueeze(1)).sum().item() / math.log(2))
         for alpha in (0., .25, .5, .75, 1.):
             mix = alpha * neural_probs + (1. - alpha) * ngram_probs
