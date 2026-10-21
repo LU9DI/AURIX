@@ -241,9 +241,9 @@ def test_python_graph_resolves_imported_package_submodule(tmp_path):
     package = tmp_path / "pkg"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
-    (package / "submodule.py").write_text("def work(): return 1\\n", encoding="utf-8")
+    (package / "submodule.py").write_text("def work(): return 1\n", encoding="utf-8")
     (tmp_path / "client.py").write_text(
-        "from pkg import submodule\\n",
+        "from pkg import submodule\n",
         encoding="utf-8",
     )
 
