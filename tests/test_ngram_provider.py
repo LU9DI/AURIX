@@ -161,3 +161,14 @@ def test_corpus_skip_directory_policy_is_case_insensitive(tmp_path):
 def test_corpus_source_extension_matching_is_case_insensitive(tmp_path):
     (tmp_path / "UPPER.PY").write_text("def upper_case(): pass\n")
     assert b"upper_case" in collect_corpus(tmp_path)
+
+
+def test_corpus_total_size_cap_includes_inter_file_separators(tmp_path):
+    (tmp_path / "a.py").write_bytes(b"12345")
+    (tmp_path / "b.py").write_bytes(b"67890")
+    (tmp_path / "c.py").write_bytes(b"abcde")
+
+    corpus = collect_corpus(tmp_path, max_file_bytes=100, max_total_bytes=12)
+
+    assert corpus == b"12345"
+    assert len(corpus) <= 12
