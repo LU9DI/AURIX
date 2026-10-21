@@ -50,6 +50,8 @@ python research/coverage-study/run_study.py research/coverage-study/results.json
 O runner não clona nem atualiza repositórios: isso evita alterar silenciosamente os snapshots
 medidos. Cada linha JSONL inclui o commit exato, URL de `origin` (quando configurada), se o
 clone é raso, quantidade de commits disponíveis no histórico e SHA-256 do classificador.
+O caminho absoluto local não é publicado: só o nome do snapshot é registrado. Em origens HTTP(S),
+credenciais, query strings e fragmentos são removidos antes de gravar a URL.
 Passe todos os snapshots pretendidos numa única execução para substituir o arquivo de resultados
 de uma vez; se algum snapshot falhar, o arquivo de saída anterior não é truncado.
 
