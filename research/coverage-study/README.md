@@ -37,3 +37,21 @@ a inferência ao histórico disponível; não representam necessariamente toda a
 Regenerar `results.jsonl` a partir de snapshots identificados e auditar manualmente amostras
 das categorias. Só então publicar percentuais, incluindo uma análise de sensibilidade que exclua
 reformatação em massa e compare resultados por repositório.
+
+## Execução reproduzível
+
+Com os repositórios já clonados localmente, execute o runner passando o arquivo de saída e
+os diretórios dos snapshots:
+
+```bash
+python research/coverage-study/run_study.py research/coverage-study/results.jsonl /caminho/para/AURIX /caminho/para/AEGIS
+```
+
+O runner não clona nem atualiza repositórios: isso evita alterar silenciosamente os snapshots
+medidos. Cada linha JSONL inclui o commit exato, URL de `origin` (quando configurada), se o
+clone é raso, quantidade de commits disponíveis no histórico e SHA-256 do classificador.
+Passe todos os snapshots pretendidos numa única execução para substituir o arquivo de resultados
+de uma vez; se algum snapshot falhar, o arquivo de saída anterior não é truncado.
+
+Repositórios privados precisam estar clonados com credenciais próprias antes da execução. Não
+inclua tokens ou credenciais nas URLs de origem gravadas nos resultados; prefira URLs sem segredo.
