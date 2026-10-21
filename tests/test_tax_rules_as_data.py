@@ -40,9 +40,9 @@ def test_run_study_on_temporary_git_repo(tmp_path: Path):
     git("config", "user.name", "AURIX test")
     git("config", "user.email", "aurix-test@example.invalid")
 
-    (repo / "rules.json").write_text('{"rate": 0.1}\\n', encoding="utf-8")
+    (repo / "rules.json").write_text('{"threshold": 0.1}\\n', encoding="utf-8")
     git("add", "rules.json")
-    git("commit", "-m", "add declarative rate")
+    git("commit", "-m", "add declarative threshold")
 
     (repo / "tax.ts").write_text('const aliquota = 0.1;\\n', encoding="utf-8")
     git("add", "tax.ts")
@@ -53,7 +53,7 @@ def test_run_study_on_temporary_git_repo(tmp_path: Path):
     assert report["totals"]["changed_lines"] == 2
     assert report["totals"]["changed_lines_by_class"]["declarative_candidate"] == 1
     assert report["totals"]["changed_lines_by_class"]["application_code"] == 1
-    assert report["totals"]["added_lines_containing_tax_rule_terms"] == 1
+    assert report["totals"]["added_lines_containing_tax_rule_terms"] == 2
     rendered = str(report)
     assert "const aliquota" not in rendered
     assert str(repo) not in rendered
