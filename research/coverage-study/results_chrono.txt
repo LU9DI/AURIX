@@ -1,33 +1,32 @@
-tax-platform-br total=360KB
-   bloco 1: passado=   72KB  BPB=3.14  bits em estrutura=20.1%  bytes em estrutura=22.7%
-   bloco 2: passado=  144KB  BPB=2.04  bits em estrutura=24.0%  bytes em estrutura=25.0%
-   bloco 3: passado=  216KB  BPB=2.55  bits em estrutura=23.5%  bytes em estrutura=23.7%
-   bloco 4: passado=  288KB  BPB=2.56  bits em estrutura=25.7%  bytes em estrutura=22.6%
-   TOTAL: BPB medio=2.57  bits em ESTRUTURA=23.1%
-aurix total=198KB
-   bloco 1: passado=   39KB  BPB=3.68  bits em estrutura=12.1%  bytes em estrutura=16.6%
-   bloco 2: passado=   79KB  BPB=2.70  bits em estrutura=20.1%  bytes em estrutura=34.7%
-   bloco 3: passado=  119KB  BPB=2.18  bits em estrutura= 9.0%  bytes em estrutura=11.4%
-   bloco 4: passado=  159KB  BPB=1.76  bits em estrutura=14.8%  bytes em estrutura=18.4%
-   TOTAL: BPB medio=2.58  bits em ESTRUTURA=14.0%
-backend total=276KB
-   bloco 1: passado=   55KB  BPB=3.07  bits em estrutura= 4.0%  bytes em estrutura= 4.9%
-   bloco 2: passado=  110KB  BPB=2.00  bits em estrutura=14.2%  bytes em estrutura=24.5%
-   bloco 3: passado=  166KB  BPB=4.02  bits em estrutura=10.7%  bytes em estrutura=12.2%
-   bloco 4: passado=  221KB  BPB=3.28  bits em estrutura= 7.2%  bytes em estrutura= 8.7%
-   TOTAL: BPB medio=3.10  bits em ESTRUTURA=8.7%
+tax-platform-br total=345KB
+   bloco 1: passado=   69KB  BPB=3.09  bits em estrutura=19.6%  bytes em estrutura=23.3%
+   bloco 2: passado=  138KB  BPB=2.01  bits em estrutura=23.4%  bytes em estrutura=24.5%
+   bloco 3: passado=  207KB  BPB=2.62  bits em estrutura=25.5%  bytes em estrutura=24.4%
+   bloco 4: passado=  276KB  BPB=2.27  bits em estrutura= 4.9%  bytes em estrutura= 5.8%
+   TOTAL: BPB medio=2.50  bits em ESTRUTURA=18.6%
+aurix total=193KB
+   bloco 1: passado=   38KB  BPB=3.74  bits em estrutura=13.0%  bytes em estrutura=18.1%
+   bloco 2: passado=   77KB  BPB=2.90  bits em estrutura=20.7%  bytes em estrutura=35.3%
+   bloco 3: passado=  115KB  BPB=2.19  bits em estrutura=10.5%  bytes em estrutura=14.3%
+   bloco 4: passado=  154KB  BPB=1.37  bits em estrutura=19.4%  bytes em estrutura=22.0%
+   TOTAL: BPB medio=2.55  bits em ESTRUTURA=15.5%
+backend total=265KB
+   bloco 1: passado=   53KB  BPB=3.31  bits em estrutura= 4.4%  bytes em estrutura= 5.0%
+   bloco 2: passado=  106KB  BPB=1.83  bits em estrutura=20.1%  bytes em estrutura=28.7%
+   bloco 3: passado=  159KB  BPB=3.94  bits em estrutura=13.6%  bytes em estrutura=15.7%
+   bloco 4: passado=  212KB  BPB=3.45  bits em estrutura= 9.9%  bytes em estrutura=14.6%
+   TOTAL: BPB medio=3.13  bits em ESTRUTURA=11.1%
 zion total=219KB
    bloco 1: passado=   44KB  BPB=3.78  bits em estrutura= 4.3%  bytes em estrutura= 5.7%
    bloco 2: passado=   87KB  BPB=3.90  bits em estrutura=33.3%  bytes em estrutura=32.5%
    bloco 3: passado=  131KB  BPB=2.85  bits em estrutura= 4.1%  bytes em estrutura= 4.8%
-   bloco 4: passado=  175KB  BPB=2.78  bits em estrutura=17.4%  bytes em estrutura=26.9%
+   bloco 4: passado=  175KB  BPB=2.77  bits em estrutura=17.3%  bytes em estrutura=26.9%
    TOTAL: BPB medio=3.33  bits em ESTRUTURA=15.5%
-aegis total=102KB
-   bloco 1: passado=   20KB  BPB=3.10  bits em estrutura=20.6%  bytes em estrutura=29.7%
-   bloco 2: passado=   40KB  BPB=3.45  bits em estrutura=19.3%  bytes em estrutura=30.8%
-   bloco 3: passado=   61KB  BPB=3.24  bits em estrutura=23.5%  bytes em estrutura=34.0%
-   bloco 4: passado=   81KB  BPB=2.47  bits em estrutura=12.2%  bytes em estrutura=26.0%
-   TOTAL: BPB medio=3.07  bits em ESTRUTURA=19.3%
+aegis total=99KB
+   bloco 2: passado=   39KB  BPB=3.43  bits em estrutura=18.7%  bytes em estrutura=30.4%
+   bloco 3: passado=   59KB  BPB=3.03  bits em estrutura=23.8%  bytes em estrutura=34.1%
+   bloco 4: passado=   80KB  BPB=2.47  bits em estrutura=12.6%  bytes em estrutura=27.5%
+   TOTAL: BPB medio=2.98  bits em ESTRUTURA=18.8%
 saas-reputacao-ia total=110KB
    bloco 1: passado=   22KB  BPB=4.10  bits em estrutura=21.7%  bytes em estrutura=31.0%
    bloco 2: passado=   44KB  BPB=4.14  bits em estrutura= 7.6%  bytes em estrutura= 7.1%
