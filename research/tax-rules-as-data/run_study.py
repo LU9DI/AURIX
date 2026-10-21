@@ -34,10 +34,13 @@ def classify_path(path: str) -> str:
     # Check this before DATA_PATH because "migrations" is a candidate directory.
     if suffix in SCHEMA_EXTENSIONS:
         return "schema_or_data_candidate"
-    if DATA_PATH.search(normalized) or suffix in DATA_EXTENSIONS:
+    if suffix in DATA_EXTENSIONS:
         return "declarative_candidate"
     if suffix in CODE_EXTENSIONS:
+        # A "rules" or "data" directory does not make executable code declarative.
         return "application_code"
+    if DATA_PATH.search(normalized):
+        return "declarative_candidate"
     return "other"
 
 
