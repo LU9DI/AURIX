@@ -42,6 +42,18 @@ def test_hunks_rejects_non_git_directory(tmp_path):
         raise AssertionError("hunks() must not treat git failures as an empty history")
 
 
+def test_safe_origin_removes_embedded_credentials():
+    runner_path = Path(__file__).resolve().parents[1] / "research" / "coverage-study" / "run_study.py"
+    runner_spec = importlib.util.spec_from_file_location("coverage_run_study_safe_origin", runner_path)
+    assert runner_spec is not None and runner_spec.loader is not None
+    runner = importlib.util.module_from_spec(runner_spec)
+    runner_spec.loader.exec_module(runner)
+
+    assert runner.safe_origin("https://user:secret@github.com/org/repo.git") == "https://github.com/org/repo.git"
+    assert runner.safe_origin("https://github.com/org/repo.git") == "https://github.com/org/repo.git"
+    assert runner.safe_origin("git@github.com:org/repo.git") == "git@github.com:org/repo.git"
+
+
 def test_study_runner_records_snapshot_provenance(tmp_path):
     import importlib.util
     import json
