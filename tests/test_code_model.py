@@ -4,6 +4,7 @@ import pytest
 
 from aurix.orchestrator import Orchestrator
 from aurix.tools.code_model import analyze_python_code
+from aurix.tools.structural_graph import compare_graph_snapshots
 
 
 def test_python_code_model_extracts_symbols_imports_calls_and_hash(tmp_path):
@@ -90,3 +91,50 @@ def test_orchestrator_can_call_python_code_model_and_continue(tmp_path):
     assert result.status == "completed"
     assert result.trace[0]["tool"] == "analyze_python_code"
     assert '"greet"' in provider.prompts[1]
+
+
+
+def test_python_graph_resolves_local_imports_and_reports_cycles(tmp_path):
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "a.py").write_text("from .b import run\ndef start(): return run()\n", encoding="utf-8")
+    (package / "b.py").write_text("from .a import start\ndef run(): return start()\n", encoding="utf-8")
+    (package / "external.py").write_text("import package_not_in_workspace\n", encoding="utf-8")
+
+    result = analyze_python_code(tmp_path)
+    graph = result["graph"]
+
+    assert {(edge["source"], edge["target"]) for edge in graph["edges"]} == {
+        ("pkg.a", "pkg.b"),
+        ("pkg.b", "pkg.a"),
+    }
+    assert graph["cycles"] == [["pkg.a", "pkg.b"]]
+    assert any(item["target"] == "package_not_in_workspace" for item in graph["unresolved_imports"])
+
+
+def test_incremental_graph_comparison_invalidates_transitive_dependents():
+    previous = {
+        "nodes": [
+            {"module": "pkg.a", "path": "pkg/a.py", "sha256": "old-a"},
+            {"module": "pkg.b", "path": "pkg/b.py", "sha256": "same-b"},
+            {"module": "pkg.c", "path": "pkg/c.py", "sha256": "same-c"},
+        ],
+        "edges": [
+            {"kind": "imports", "source": "pkg.b", "target": "pkg.a"},
+            {"kind": "imports", "source": "pkg.c", "target": "pkg.b"},
+        ],
+    }
+    current = {
+        "nodes": [
+            {"module": "pkg.a", "path": "pkg/a.py", "sha256": "new-a"},
+            {"module": "pkg.b", "path": "pkg/b.py", "sha256": "same-b"},
+            {"module": "pkg.c", "path": "pkg/c.py", "sha256": "same-c"},
+        ],
+        "edges": previous["edges"],
+    }
+
+    result = compare_graph_snapshots(previous, current)
+
+    assert result["changed_files"] == ["pkg/a.py"]
+    assert result["affected_modules"] == ["pkg.a", "pkg.b", "pkg.c"]
+    assert result["invalidated_files"] == ["pkg/a.py", "pkg/b.py", "pkg/c.py"]
