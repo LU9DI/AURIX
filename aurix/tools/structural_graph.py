@@ -77,7 +77,9 @@ def _cycles(nodes: set[str], edges: list[dict[str, Any]]) -> list[list[str]]:
 
 
 def build_structural_graph(
-    files: list[dict[str, Any]], relations: list[dict[str, Any]]
+    files: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
+    symbols: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a graph of modules and locally resolvable imports; unresolved edges stay explicit."""
     by_path = {
@@ -96,7 +98,25 @@ def build_structural_graph(
     ]
     edges: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
+    symbol_names: dict[str, set[str]] = defaultdict(set)
+    for symbol in symbols or []:
+        if symbol.get("module") in modules and isinstance(symbol.get("name"), str):
+            symbol_names[symbol["module"]].add(symbol["name"])
+    resolved_calls: list[dict[str, Any]] = []
     for relation in relations:
+        if relation.get("kind") == "calls":
+            source = relation.get("source", "")
+            target = relation.get("target", "")
+            path = relation.get("path", "")
+            if source in modules and path in by_path and target.isidentifier() and target in symbol_names[source]:
+                resolved_calls.append({
+                    "source_module": source,
+                    "target_symbol": f"{source}.{target}",
+                    "path": path,
+                    "line": relation.get("line", 1),
+                    "resolution": "unique_same_module_name",
+                })
+            continue
         if relation.get("kind") != "imports":
             continue
         source = relation.get("source", "")
@@ -114,6 +134,7 @@ def build_structural_graph(
         "nodes": nodes,
         "edges": sorted(edges, key=lambda item: (item["source"], item["target"], item["path"], item["line"])),
         "unresolved_imports": sorted(unresolved, key=lambda item: (item["path"], item["line"])),
+        "resolved_calls": sorted(resolved_calls, key=lambda item: (item["path"], item["line"])),
         "cycles": _cycles(modules, edges),
         "resolution": "local_modules_only",
     }
