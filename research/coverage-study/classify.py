@@ -112,7 +112,7 @@ DETERMINISTIC = {
 
 
 def hunks(repo):
-    cmd = ["git", "-C", repo, "log", "--no-merges", "-U0", "--format=@@C %H\t%s"]
+    cmd = ["git", "-C", repo, "log", "--no-merges", "-p", "-U0", "--format=@@C %H\t%s"]
     out = subprocess.run(cmd, capture_output=True, text=True, errors="replace", check=True).stdout
     commit = msg = path = None
     add = []
