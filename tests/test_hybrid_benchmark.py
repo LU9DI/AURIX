@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
 import math
+from pathlib import Path
 
-from research.hybrid_benchmark.run import bpb, split_files
+_RUN_PATH = Path(__file__).resolve().parents[1] / "research" / "hybrid_benchmark" / "run.py"
+_SPEC = importlib.util.spec_from_file_location("aurix_hybrid_benchmark_run", _RUN_PATH)
+assert _SPEC is not None and _SPEC.loader is not None
+_RUN = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_RUN)
+bpb, split_files = _RUN.bpb, _RUN.split_files
 
 
 def test_split_is_deterministic_and_keeps_files_whole() -> None:
