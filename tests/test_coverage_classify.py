@@ -40,3 +40,28 @@ def test_hunks_rejects_non_git_directory(tmp_path):
         assert exc.returncode != 0
     else:
         raise AssertionError("hunks() must not treat git failures as an empty history")
+
+
+def test_hunks_extracts_changes_from_git_history(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "aurix-test@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "AURIX test"], check=True)
+    source = repo / "module.py"
+    source.write_text("def before():\n    return 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "module.py"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "initial"], check=True)
+    source.write_text("def after():\n    return 2\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "commit", "-am", "change"], check=True, capture_output=True)
+
+    rows = list(CLASSIFIER.hunks(str(repo)))
+
+    assert len(rows) == 1
+    _, message, path, deleted, added = rows[0]
+    assert message == "change"
+    assert path == "module.py"
+    assert deleted == ["def before():", "    return 1"]
+    assert added == ["def after():", "    return 2"]
