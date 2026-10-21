@@ -78,12 +78,14 @@ def collect_corpus(
     seen: set[bytes] = set()
     total = 0
     for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+        skipped = {name.casefold() for name in SKIPPED_DIRS}
         dirnames[:] = sorted(
-            d for d in dirnames if d not in SKIPPED_DIRS and not (Path(dirpath) / d).is_symlink()
+            d for d in dirnames
+            if d.casefold() not in skipped and not (Path(dirpath) / d).is_symlink()
         )
         for name in sorted(filenames):
             path = Path(dirpath) / name
-            if not name.endswith(extensions) or path.is_symlink():
+            if path.suffix.lower() not in {ext.lower() for ext in extensions} or path.is_symlink():
                 continue
             try:
                 if path.stat().st_size > max_file_bytes:
