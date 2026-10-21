@@ -220,10 +220,10 @@ def test_python_graph_resolves_relative_from_import_without_module_name(tmp_path
     package = tmp_path / "pkg"
     package.mkdir()
     (package / "main.py").write_text(
-        "from . import sibling\\ndef run(): return sibling.work()\\n",
+        "from . import sibling\ndef run(): return sibling.work()\n",
         encoding="utf-8",
     )
-    (package / "sibling.py").write_text("def work(): return 1\\n", encoding="utf-8")
+    (package / "sibling.py").write_text("def work(): return 1\n", encoding="utf-8")
 
     graph = analyze_python_code(tmp_path)["graph"]
 
