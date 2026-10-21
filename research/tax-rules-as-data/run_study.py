@@ -36,7 +36,7 @@ def classify_path(path: str) -> str:
         return "schema_or_data_candidate"
     if DATA_PATH.search(normalized) or suffix in DATA_EXTENSIONS:
         return "declarative_candidate"
-    if p.suffix.lower() in CODE_EXTENSIONS:
+    if suffix in CODE_EXTENSIONS:
         return "application_code"
     return "other"
 
