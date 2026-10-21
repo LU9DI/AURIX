@@ -214,3 +214,24 @@ def test_structural_graph_excludes_ambiguous_module_paths():
     assert [node["module"] for node in graph["nodes"]] == ["client"]
     assert graph["edges"] == []
     assert graph["unresolved_imports"] == []
+
+
+def test_python_graph_resolves_relative_from_import_without_module_name(tmp_path):
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "main.py").write_text(
+        "from . import sibling\\ndef run(): return sibling.work()\\n",
+        encoding="utf-8",
+    )
+    (package / "sibling.py").write_text("def work(): return 1\\n", encoding="utf-8")
+
+    graph = analyze_python_code(tmp_path)["graph"]
+
+    assert any(
+        edge["source"] == "pkg.main" and edge["target"] == "pkg.sibling"
+        for edge in graph["edges"]
+    )
+    assert not any(
+        item["path"] == "pkg/main.py" and item["target"] == "."
+        for item in graph["unresolved_imports"]
+    )
