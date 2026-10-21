@@ -235,3 +235,21 @@ def test_python_graph_resolves_relative_from_import_without_module_name(tmp_path
         item["path"] == "pkg/main.py" and item["target"] == "."
         for item in graph["unresolved_imports"]
     )
+
+
+def test_python_graph_resolves_imported_package_submodule(tmp_path):
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "submodule.py").write_text("def work(): return 1\\n", encoding="utf-8")
+    (tmp_path / "client.py").write_text(
+        "from pkg import submodule\\n",
+        encoding="utf-8",
+    )
+
+    graph = analyze_python_code(tmp_path)["graph"]
+
+    assert any(
+        edge["source"] == "client" and edge["target"] == "pkg.submodule"
+        for edge in graph["edges"]
+    )
