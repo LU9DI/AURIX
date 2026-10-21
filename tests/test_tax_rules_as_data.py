@@ -102,28 +102,45 @@ def test_build_review_sample_is_deterministic_deduplicated_and_source_free():
     sampler = runpy.run_path(str(sampler_path))["build_sample"]
     report = {
         "commits": [
-            {"commit": "abc123", "rule_signal_files": [
-                {"path": "src/tax.ts", "matching_added_lines": 2},
-                {"path": "rules.json", "matching_added_lines": 1},
-                {"path": "src/tax.ts", "matching_added_lines": 3},
-            ]},
-            {"commit": "def456", "rule_signal_files": [
-                {"path": "src/tax.ts", "matching_added_lines": 1},
-            ]},
+            {
+                "commit": "abc123",
+                "changed_files": [
+                    {"path": "src/tax.ts", "class": "application_code", "changed_lines": 2},
+                    {"path": "rules.json", "class": "declarative_candidate", "changed_lines": 1},
+                    {"path": "README.md", "class": "other", "changed_lines": 4},
+                ],
+                "rule_signal_files": [
+                    {"path": "src/tax.ts", "matching_added_lines": 2},
+                    {"path": "rules.json", "matching_added_lines": 1},
+                    {"path": "src/tax.ts", "matching_added_lines": 3},
+                ],
+            },
+            {
+                "commit": "def456",
+                "changed_files": [
+                    {"path": "src/tax.ts", "class": "application_code", "changed_lines": 1},
+                ],
+                "rule_signal_files": [
+                    {"path": "src/tax.ts", "matching_added_lines": 1},
+                ],
+            },
         ]
     }
-    sample = sampler(report, limit=2)
-    assert len(sample) == 2
-    assert len({(row["commit"], row["path"]) for row in sample}) == 2
+    sample = sampler(report, limit=3)
+    assert len(sample) == 3
+    assert len({(row["commit"], row["path"]) for row in sample}) == 3
     assert [row["sample_order_sha256"] for row in sample] == sorted(
         row["sample_order_sha256"] for row in sample
     )
     assert all(row["primary_label"] == "" for row in sample)
-    assert all("matching_added_lines" not in row for row in sample)
-    assert sampler(report, limit=2) == sample
-
-
-
+    assert all(row["frame"] == "all_changed_files" for row in sample)
+    assert all("changed_lines" not in row and "matching_added_lines" not in row for row in sample)
+    assert sampler(report, limit=3) == sample
+    # The keyword-screened frame remains available for focused follow-up, but is not the default.
+    screened = sampler(report, limit=10, frame="tax_signal_files")
+    assert {(row["commit"], row["path"]) for row in screened} == {
+        ("abc123", "src/tax.ts"), ("abc123", "rules.json"), ("def456", "src/tax.ts")
+    }
 def test_review_summary_uses_labelled_denominator_and_rejects_unknown_labels():
     summary_path = Path(__file__).resolve().parents[1] / "research/tax-rules-as-data/summarize_review.py"
     summarize = runpy.run_path(str(summary_path))["summarize"]
