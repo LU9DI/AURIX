@@ -132,20 +132,17 @@ def score_models(model, neural, test_rows, max_eval_bytes: int, device: str):
         if len(sample) < 2:
             continue
         neural_lp = neural_log_probs(neural, sample, device)
-        ngram_lp = []
-        for i in range(len(sample) - 1):
-            probs = model.next_distribution(sample[:i + 1])
-            ngram_lp.append(max(float(probs[sample[i + 1]]), 1e-12))
-        ngram_t = torch.tensor(ngram_lp, dtype=torch.float64)
-        neural_probs = neural_lp.exp().to(torch.float64)
-        ngram_probs = torch.zeros_like(neural_probs)
         target = torch.tensor(list(sample[1:]), dtype=torch.long, device=device)
-        # Recreate full n-gram distributions only for the bounded evaluation prefix.
-        for i in range(len(sample) - 1):
-            ngram_probs[i] = torch.tensor(
-                model.next_distribution(sample[:i + 1]), dtype=torch.float64, device=device
-            )
-        totals["ngram"] += float(-torch.log2(ngram_t.gather(0, target.cpu()).clamp_min(1e-12)).sum())
+        # Compute each distribution once; keep the target index aligned with its byte position.
+        ngram_rows = [
+            model.next_distribution(sample[:i + 1]) for i in range(len(sample) - 1)
+        ]
+        ngram_probs = torch.tensor(ngram_rows, dtype=torch.float64, device=device)
+        ngram_target_probs = ngram_probs.gather(1, target.unsqueeze(1)).squeeze(1)
+        neural_probs = neural_lp.exp().to(torch.float64)
+        totals["ngram"] += float(
+            -torch.log2(ngram_target_probs.clamp_min(1e-12)).sum().item()
+        )
         totals["neural"] += float(-neural_lp.gather(1, target.unsqueeze(1)).sum().item() / math.log(2))
         for alpha in (0., .25, .5, .75, 1.):
             mix = alpha * neural_probs + (1. - alpha) * ngram_probs
