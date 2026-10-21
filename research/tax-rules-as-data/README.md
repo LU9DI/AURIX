@@ -39,3 +39,14 @@ A read-only spot-check of the current `tax-platform-br` tree found both sides of
 - `src/services/taxActivityClassificationService.ts` implements CNAE normalization, explicit identifier matching, and an `unknown` fallback. The mapping can be data-driven, but normalization and fallback behavior are algorithmic invariants.
 
 This sample supports testing a **hybrid boundary**: keep calculation/validation semantics in code, while versioning carefully validated legal parameters and mappings as data. It does **not** establish how much of the historical change volume is safely convertible. The full-history script plus manually reviewed diffs is still required for that estimate.
+
+
+## Generate the review worksheet
+
+After creating the screening JSON, generate a deterministic CSV worksheet (the CSV contains hashes, commit IDs, relative paths, and blank review fields, not source lines):
+
+```bash
+python research/tax-rules-as-data/build_review_sample.py tax-data-screen.json --limit 30 --output tax-data-review.csv
+```
+
+The sampler deduplicates by `(commit, path)`, computes `SHA-256(commit + NUL + path)`, and selects the lowest hashes. Reviewers should fill `primary_label`, `reviewer`, `confidence`, and `rationale` according to the protocol. The worksheet is an operational aid; it does not inspect diffs or assign labels automatically.
