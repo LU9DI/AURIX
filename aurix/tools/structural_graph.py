@@ -140,11 +140,28 @@ def build_structural_graph(
         if source not in modules or path not in valid_paths:
             continue
         resolved = _resolve_import(path, target, modules)
+        imported_modules = sorted(
+            {
+                candidate
+                for name in relation.get("imported_names", [])
+                if isinstance(name, str) and name.isidentifier()
+                for candidate in [_resolve_import(path, f"{target}.{name}", modules)]
+                if candidate is not None
+            }
+        )
         evidence = {"source": source, "target": target, "path": path, "line": relation.get("line", 1)}
-        if resolved is None:
-            unresolved.append(evidence)
-        else:
+        if resolved is not None:
             edges.append({**evidence, "kind": "imports", "target": resolved})
+        elif not imported_modules:
+            unresolved.append(evidence)
+        for imported_module in imported_modules:
+            if imported_module != resolved:
+                edges.append({
+                    **evidence,
+                    "kind": "imports",
+                    "target": imported_module,
+                    "resolution": "imported_submodule",
+                })
     return {
         "nodes": nodes,
         "edges": sorted(edges, key=lambda item: (item["source"], item["target"], item["path"], item["line"])),
