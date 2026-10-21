@@ -179,8 +179,10 @@ def main() -> None:
     parser.add_argument("--max-train-bytes", type=int, default=1_000_000)
     args = parser.parse_args()
     if min(args.steps, args.seq_len, args.batch_size, args.hidden_size,
-           args.max_eval_bytes, args.max_train_bytes) < 1:
+           args.max_eval_bytes, args.max_train_bytes, args.max_file_bytes) < 1:
         parser.error("steps, sequence length, batch size, hidden size and byte limits must be positive")
+    if args.order < 1:
+        parser.error("--order must be a positive integer")
 
     rows = files_under(args.root, args.max_file_bytes)
     train_rows, test_rows = split_files(rows)
