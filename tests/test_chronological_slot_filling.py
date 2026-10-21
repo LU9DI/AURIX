@@ -11,7 +11,7 @@ _MODULE = runpy.run_path(
 def test_shape_and_slots_preserve_syntax_and_capture_identifiers():
     shape, slots = _MODULE["shape_and_slots"]('return client.status(400).json({"ok": true})')
 
-    assert shape == 'return <ID>.status(<NUM>).json({"<STR>": true})'
+    assert shape == 'return <ID>.status(<NUM>).json({<STR>: true})'
     assert "client" in slots
     assert "400" in slots
     assert '"ok"' in slots
