@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import runpy
 import subprocess
 import sys
@@ -69,3 +70,21 @@ def test_run_study_on_temporary_git_repo(tmp_path: Path):
     assert result.returncode == 2
     assert "outside target repository" in result.stderr
     assert not output_inside_repo.exists()
+
+    output_outside_repo = tmp_path / "tax-data-screen.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(repo),
+            "--max-commits",
+            "1",
+            "--output",
+            str(output_outside_repo),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    saved_report = json.loads(output_outside_repo.read_text(encoding="utf-8"))
+    assert saved_report["commits_evaluated"] == 1
