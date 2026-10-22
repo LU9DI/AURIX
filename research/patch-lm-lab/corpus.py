@@ -54,7 +54,11 @@ def files():
 
 
 def split(seed=0):
-    fs = files()
+    import os
+    import pickle
+
+    snap = os.path.join(os.path.dirname(os.path.abspath(__file__)), "corpus_frozen.pkl")
+    fs = pickle.load(open(snap, "rb")) if os.path.exists(snap) else files()
     rnd = random.Random(seed)
     rnd.shuffle(fs)
     n = len(fs)
