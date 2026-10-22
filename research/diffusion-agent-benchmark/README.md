@@ -86,15 +86,37 @@ Proceed to a larger experiment only if:
 
 If any gate fails, publish the negative/inconclusive result and the failure analysis instead of tuning against the held-out set.
 
+## Initial runnable task suite
+
+The PR now includes three isolated known-defect fixtures (addition, absolute value, and even-number detection), each with tests, plus a runner that writes a JSON report. The suite is deliberately small and synthetic: it validates the harness plumbing, not broad coding ability.
+
+AURIX already has local provider adapters, including Ollama and an OpenAI-compatible endpoint. This means the autoregressive baseline can use the existing provider interface. **It does not mean a diffusion model is supported automatically**: the denoising model still needs an adapter that implements `Provider.generate`, or a local server exposing a compatible interface. A chat-compatible API may hide different decoding algorithms, so its actual backend must be verified before labeling it “diffusion.”
+
+From the repository root, after installing AURIX and starting a local Ollama server with a code model available:
+
+```bash
+AURIX_PROVIDER=ollama AURIX_MODEL=qwen2.5-coder:7b python research/diffusion-agent-benchmark/run_autonomous_suite.py --confirm
+```
+
+PowerShell equivalent:
+
+```powershell
+$env:AURIX_PROVIDER = "ollama"
+$env:AURIX_MODEL = "qwen2.5-coder:7b"
+python research/diffusion-agent-benchmark/run_autonomous_suite.py --confirm
+```
+
+The command makes model calls and runs tests in disposable copies. Its default output is `research/diffusion-agent-benchmark/results/latest.json`. The runner refuses to execute without `--confirm`. Trusted execution is not an OS sandbox; use the existing Docker isolation option only with a reviewed local image when evaluating untrusted generated code.
+
 ## Immediate implementation order
 
-1. Add a local-model adapter that satisfies the existing provider interface without API credentials.
-2. Add an autoregressive and an iterative-denoising backend behind the same interface. Keep model checkpoints/configuration and parameter counts explicit.
-3. Extend the autonomous smoke suite with more than one task and confirm the harness distinguishes a known-good patch from a known-bad patch.
-4. Run one tiny smoke comparison first. If the chosen local model cannot fit the available RAM/CPU budget, record that as a resource limit rather than silently switching to a hosted API.
-5. Only then run the seed/budget sweep in Stages B–C.
+1. Run the suite with the existing autoregressive provider and inspect each failed patch and the saved JSON report.
+2. Add a diffusion provider adapter only after selecting a model that can actually perform iterative denoising and exposes enough controls to record its step budget.
+3. Confirm both paths use equivalent prompts, fixtures, test commands, timeouts, and retry budgets.
+4. Run one smoke comparison. If a model does not fit available resources, record that as a resource limit rather than silently switching to a hosted API.
+5. Only then run the multi-seed and inference-budget sweep in Stages B–C.
 
-The repository review was read-only; this PR has not added the adapter, selected a checkpoint, or executed a model. This order is intended to avoid duplicating the current AURIX test harness.
+The repository changes were made remotely. The suite has **not** been executed in this environment, and no model checkpoint was selected or benchmarked here. The command is ready for execution in the local AURIX environment; this PR does not claim the fixtures or model behavior have already passed.
 
 ## Limitations
 
