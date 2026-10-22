@@ -17,6 +17,15 @@ This is narrower than claiming that diffusion models replace a Claude-Code-scale
 
 A result may support H1 while failing H2/H3. Report these separately.
 
+## Reuse existing AURIX evaluation code
+
+Before building another task runner, adapt and test the repository's existing evaluation path:
+- `aurix/evaluation/benchmark.py` for repeated provider calls, latency, acceptance criteria, and JSON reports;
+- `aurix/evaluation/autonomous.py` and `benchmarks/autonomous-smoke/` for model-proposed patches evaluated in disposable copies;
+- `aurix/evaluation/functional.py` and `benchmarks/functional-smoke/` for deterministic baseline-versus-candidate tests.
+
+These harnesses already exist on `main`; the remaining work is a provider adapter for a local denoising model, a comparable autoregressive baseline, and a task suite whose results depend on actual patch/test success rather than response wording. Do not label the existing string/tool acceptance benchmark alone as proof of code quality.
+
 ## Experimental stages
 
 ### Stage A — mechanism sanity check
@@ -76,6 +85,16 @@ Proceed to a larger experiment only if:
 4. the task pass rate is not worse by more than the predeclared 5 percentage points.
 
 If any gate fails, publish the negative/inconclusive result and the failure analysis instead of tuning against the held-out set.
+
+## Immediate implementation order
+
+1. Add a local-model adapter that satisfies the existing provider interface without API credentials.
+2. Add an autoregressive and an iterative-denoising backend behind the same interface. Keep model checkpoints/configuration and parameter counts explicit.
+3. Extend the autonomous smoke suite with more than one task and confirm the harness distinguishes a known-good patch from a known-bad patch.
+4. Run one tiny smoke comparison first. If the chosen local model cannot fit the available RAM/CPU budget, record that as a resource limit rather than silently switching to a hosted API.
+5. Only then run the seed/budget sweep in Stages B–C.
+
+The repository review was read-only; this PR has not added the adapter, selected a checkpoint, or executed a model. This order is intended to avoid duplicating the current AURIX test harness.
 
 ## Limitations
 
