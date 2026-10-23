@@ -33,13 +33,13 @@ def wilson(k, n, z=1.96):
     p = k / n; d = 1 + z * z / n; c = p + z * z / (2 * n); w = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5)
     return ((c - w) / d, (c + w) / d)
 
-def run_arm(spec, repeats, timeout, max_steps):
+def run_arm(spec, repeats, timeout, max_steps, suite=SUITE):
     from aurix.evaluation.autonomous import run_autonomous_benchmark
     name, kind, url, model = (spec.split(",") + ["", "", ""])[:4]
     prov = make_provider(kind, url, model); rows = []
     for r in range(repeats):
         t0 = time.perf_counter()
-        rep = run_autonomous_benchmark(SUITE, prov, confirm=True, timeout_seconds=timeout, max_steps=max_steps)
+        rep = run_autonomous_benchmark(suite, prov, confirm=True, timeout_seconds=timeout, max_steps=max_steps)
         wall = time.perf_counter() - t0
         per = rep.get("results") or rep.get("cases_detail") or []
         rows.append({"arm": name, "rep": r, "cases": rep["cases"], "passed": rep["passed"], "wall_s": wall,
@@ -57,13 +57,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--arm", action="append", required=True, help="name,kind,base_url,model (kind: openai-compatible|ollama|stub)")
     ap.add_argument("--repeats", type=int, default=5); ap.add_argument("--timeout", type=int, default=30)
-    ap.add_argument("--max-steps", type=int, default=8); ap.add_argument("--note", default="")
+    ap.add_argument("--max-steps", type=int, default=8); ap.add_argument("--note", default=""); ap.add_argument("--suite", type=Path, default=SUITE, help="e.g. suite/suite_v2.json (23 tasks)")
     ap.add_argument("--margin", type=float, default=0.05); ap.add_argument("--confirm", action="store_true")
     ap.add_argument("--output", type=Path, default=ROOT / "results" / "compare_arms.json")
     a = ap.parse_args()
     if not a.confirm: ap.error("refusing to call models / run tests without --confirm")
     if len(a.arm) != 2: ap.error("exactly two --arm (A = baseline first, B = candidate second)")
-    arms = dict(run_arm(s, a.repeats, a.timeout, a.max_steps) for s in a.arm)
+    arms = dict(run_arm(s, a.repeats, a.timeout, a.max_steps, a.suite) for s in a.arm)
     (na, ra), (nb, rb) = list(arms.items())
     out = {"arms": {}, "env": {"python": sys.version.split()[0], "platform": platform.platform(), "note": a.note},
            "margin": a.margin, "raw": ra + rb}
