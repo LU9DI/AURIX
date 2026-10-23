@@ -1,0 +1,6 @@
+ar None {'forward_passes': 32, 'byte_acc': 0.155625, 'first8_acc': 0.34875, 'exact32': 0.005, 'n_prompts': 200, 'lat_median_ms': 36.60963400034234, 'lat_p90_ms': 40.16617100023723}
+diff 2 {'forward_passes': 2, 'byte_acc': 0.13796875, 'first8_acc': 0.140625, 'exact32': 0, 'n_prompts': 200, 'lat_median_ms': 9.091002999412012, 'lat_p90_ms': 9.450063000258524}
+diff 4 {'forward_passes': 4, 'byte_acc': 0.1396875, 'first8_acc': 0.145, 'exact32': 0, 'n_prompts': 200, 'lat_median_ms': 18.628256000738475, 'lat_p90_ms': 20.66482400005043}
+diff 8 {'forward_passes': 8, 'byte_acc': 0.13828125, 'first8_acc': 0.138125, 'exact32': 0, 'n_prompts': 200, 'lat_median_ms': 37.08311499940464, 'lat_p90_ms': 44.2528380008298}
+diff 16 {'forward_passes': 16, 'byte_acc': 0.13515625, 'first8_acc': 0.13375, 'exact32': 0, 'n_prompts': 200, 'lat_median_ms': 72.94962000014493, 'lat_p90_ms': 79.78345400078979}
+diff 32 {'forward_passes': 32, 'byte_acc': 0.13359375, 'first8_acc': 0.12875, 'exact32': 0, 'n_prompts': 200, 'lat_median_ms': 141.0976204997496, 'lat_p90_ms': 147.440747001383}
