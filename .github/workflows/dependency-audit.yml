@@ -36,4 +36,4 @@ jobs:
         run: |
           .venv/bin/python -m pip freeze > /tmp/aurix-requirements.txt
           sed -i '/^aurix-agent[ @=]/d' /tmp/aurix-requirements.txt
-          pip-audit -r /tmp/aurix-requirements.txt
+          python -m pip_audit -r /tmp/aurix-requirements.txt
