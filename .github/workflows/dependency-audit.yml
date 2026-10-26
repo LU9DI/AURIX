@@ -35,5 +35,5 @@ jobs:
       - name: Audit only AURIX's resolved dependencies
         run: |
           .venv/bin/python -m pip freeze > /tmp/aurix-requirements.txt
-          sed -i '/^aurix-agent[ @=]/d' /tmp/aurix-requirements.txt
+          sed -i -e '/^aurix-agent[ @=]/d' -e '/^-e /d' /tmp/aurix-requirements.txt
           python -m pip_audit -r /tmp/aurix-requirements.txt
