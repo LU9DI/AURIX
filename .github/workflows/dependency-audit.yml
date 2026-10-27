@@ -1,0 +1,39 @@
+name: Python dependency audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "37 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-dependency-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Install audit tool outside the project environment
+        run: |
+          python -m pip install --user --upgrade pip-audit
+      - name: Create isolated project environment
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev]"
+      - name: Audit only AURIX's resolved dependencies
+        run: |
+          .venv/bin/python -m pip freeze > /tmp/aurix-requirements.txt
+          sed -i -e '/^aurix-agent[ @=]/d' -e '/^-e /d' /tmp/aurix-requirements.txt
+          python -m pip_audit -r /tmp/aurix-requirements.txt
