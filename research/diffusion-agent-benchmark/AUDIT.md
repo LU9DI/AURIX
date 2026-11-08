@@ -153,7 +153,7 @@ python -m pytest tests/test_protocol.py -q
 14 passed
 
 python -m pytest tests/test_provider_ollama.py tests/test_provider_factory.py -q
-10 passed
+8 passed
 
 python -m pytest tests/test_orchestrator.py tests/test_telemetry.py \
   tests/test_diffusion_research_suite.py -q \
