@@ -48,6 +48,17 @@ class OpenAICompatibleProvider:
         self.api_key = api_key if api_key is not None else os.getenv("AURIX_API_KEY", "")
         self.timeout = max(1.0, float(timeout))
 
+    def generation_settings(self) -> dict[str, object]:
+        """Report that this generic adapter does not pin sampling parameters."""
+
+        return {
+            "temperature": None,
+            "seed": None,
+            "max_output_tokens": max(1, min(_output_limit(), 32768)),
+            "supported": {"temperature": False, "seed": False},
+            "note": "generic OpenAI-compatible adapter does not set sampling parameters",
+        }
+
     def generate(self, prompt: str, *, system: str = "") -> str:
         messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": prompt})
