@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 import time
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from aurix import __version__
@@ -26,6 +26,55 @@ from aurix.tools.execution import IsolationMode, run_test_suite
 
 _MAX_CASES = 50
 _IGNORES = shutil.ignore_patterns(".git", ".aurix", "__pycache__", ".pytest_cache", ".venv", "venv")
+
+
+def _timings(
+    case_started: float,
+    baseline: dict[str, Any],
+    agent_started: float,
+    candidate: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    """Record the observable cost of one task, including failed proposals."""
+    timing = {
+        "baseline_test_ms": float(baseline.get("duration_ms", 0.0)),
+        "agent_ms": round((time.perf_counter() - agent_started) * 1000, 2),
+        "total_ms": round((time.perf_counter() - case_started) * 1000, 2),
+    }
+    if candidate is not None:
+        timing["candidate_test_ms"] = float(candidate.get("duration_ms", 0.0))
+    return timing
+
+
+def _generation_settings(provider: Provider) -> dict[str, Any]:
+    """Report determinism settings, including explicit non-support."""
+
+    getter = getattr(provider, "generation_settings", None)
+    if callable(getter):
+        try:
+            settings = getter()
+        except (TypeError, ValueError, RuntimeError):
+            settings = None
+        if isinstance(settings, dict):
+            return settings
+    return {
+        "temperature": None,
+        "seed": None,
+        "supported": {"temperature": False, "seed": False},
+        "note": "provider does not expose sampling settings",
+    }
+
+
+def _patch_targets(patch: str) -> list[str]:
+    """Return the paths named by the old-side headers of a validated unified diff."""
+    targets: list[str] = []
+    for line in patch.splitlines():
+        if not line.startswith("--- "):
+            continue
+        value = line[4:].split("\t", 1)[0].strip()
+        if value.startswith("a/"):
+            value = value[2:]
+        targets.append(value)
+    return targets
 
 
 def load_autonomous_suite(path: str | Path) -> tuple[Path, list[dict[str, Any]]]:
@@ -69,6 +118,30 @@ def load_autonomous_suite(path: str | Path) -> tuple[Path, list[dict[str, Any]]]
             raise ValueError(f"Case {case_id}: expect_baseline_passed must be boolean")
         if not isinstance(case.get("expect_candidate_passed", True), bool):
             raise ValueError(f"Case {case_id}: expect_candidate_passed must be boolean")
+        allowed = case.get("allowed_patch_paths")
+        normalized_allowed: list[str] | None = None
+        if allowed is not None:
+            if not isinstance(allowed, list) or not allowed or len(allowed) > 20:
+                raise ValueError(
+                    f"Case {case_id}: allowed_patch_paths must be a non-empty list of paths"
+                )
+            normalized_allowed = []
+            for raw_path in allowed:
+                if not isinstance(raw_path, str) or not raw_path.strip():
+                    raise ValueError(
+                        f"Case {case_id}: allowed_patch_paths entries must be non-empty strings"
+                    )
+                relative_path = PurePosixPath(raw_path)
+                if relative_path.is_absolute() or ".." in relative_path.parts:
+                    raise ValueError(
+                        f"Case {case_id}: allowed patch path must remain inside the fixture"
+                    )
+                target = resolved.joinpath(*relative_path.parts)
+                if not target.is_file() or target.is_symlink():
+                    raise ValueError(
+                        f"Case {case_id}: allowed patch path must be an existing regular file"
+                    )
+                normalized_allowed.append(str(relative_path))
         cases.append(
             {
                 "id": case_id,
@@ -76,6 +149,7 @@ def load_autonomous_suite(path: str | Path) -> tuple[Path, list[dict[str, Any]]]
                 "task": task,
                 "expect_baseline_passed": case.get("expect_baseline_passed", False),
                 "expect_candidate_passed": case.get("expect_candidate_passed", True),
+                "allowed_patch_paths": normalized_allowed,
             }
         )
     return root, cases
@@ -116,6 +190,7 @@ def run_autonomous_benchmark(
             "task": c["task"],
             "expect_baseline_passed": c["expect_baseline_passed"],
             "expect_candidate_passed": c["expect_candidate_passed"],
+            "allowed_patch_paths": c["allowed_patch_paths"],
         }
         for c in cases
     ]
@@ -127,6 +202,7 @@ def run_autonomous_benchmark(
     with tempfile.TemporaryDirectory(prefix="aurix-autonomous-") as temp:
         temp_root = Path(temp)
         for case in cases:
+            case_started = time.perf_counter()
             fixture = Path(case["fixture"])
             baseline_copy = temp_root / f"{case['id']}-baseline"
             candidate_copy = temp_root / f"{case['id']}-candidate"
@@ -147,13 +223,15 @@ def run_autonomous_benchmark(
                 "reviewable unified-diff proposal with propose_patch. Do not claim tests passed; "
                 "do not attempt shell commands or apply changes. Modify existing regular files only."
             )
-            agent = Orchestrator(
+            orchestrator = Orchestrator(
                 provider,
                 max_steps=max_steps,
                 workspace=candidate_copy,
                 telemetry=JSONLTelemetry(candidate_copy / ".aurix" / "runs.jsonl"),
                 allow_agent_verification=False,
-            ).run(task)
+            )
+            agent_started = time.perf_counter()
+            agent = orchestrator.run(task)
             proposal_ids = [
                 entry.get("proposal_id")
                 for entry in agent.trace
@@ -174,6 +252,7 @@ def run_autonomous_benchmark(
                             "trace": agent.trace,
                         },
                         "proposal_count": len(unique_ids),
+                        "timings_ms": _timings(case_started, baseline, agent_started),
                     }
                 )
                 continue
@@ -187,12 +266,22 @@ def run_autonomous_benchmark(
                         "passed": False,
                         "baseline": baseline,
                         "proposal_id": proposal_id,
+                        "timings_ms": _timings(case_started, baseline, agent_started),
                     }
                 )
                 continue
             patch = proposal_path.read_text(encoding="utf-8")
             try:
                 _check_patch_paths(patch, candidate_copy)
+                allowed_paths = case.get("allowed_patch_paths")
+                if allowed_paths is not None:
+                    modified_paths = set(_patch_targets(patch))
+                    disallowed = sorted(modified_paths - set(allowed_paths))
+                    if disallowed:
+                        raise ValueError(
+                            "Patch modifies files outside the declared allowed set: "
+                            + ", ".join(disallowed)
+                        )
                 preflight = subprocess.run(
                     ["git", "apply", "--check", "--whitespace=error", "-"],
                     cwd=candidate_copy,
@@ -214,6 +303,7 @@ def run_autonomous_benchmark(
                         "baseline": baseline,
                         "proposal_id": proposal_id,
                         "patch_error": f"{type(exc).__name__}: {exc}",
+                        "timings_ms": _timings(case_started, baseline, agent_started),
                     }
                 )
                 continue
@@ -226,6 +316,7 @@ def run_autonomous_benchmark(
                         "baseline": baseline,
                         "proposal_id": proposal_id,
                         "patch_error": preflight.stderr[-3000:],
+                        "timings_ms": _timings(case_started, baseline, agent_started),
                     }
                 )
                 continue
@@ -250,6 +341,7 @@ def run_autonomous_benchmark(
                         "baseline": baseline,
                         "proposal_id": proposal_id,
                         "patch_error": applied.stderr[-3000:],
+                        "timings_ms": _timings(case_started, baseline, agent_started),
                     }
                 )
                 continue
@@ -288,6 +380,7 @@ def run_autonomous_benchmark(
                         "steps": agent.steps,
                         "trace": agent.trace,
                     },
+                    "timings_ms": _timings(case_started, baseline, agent_started, candidate),
                 }
             )
     passed_count = sum(bool(item.get("passed")) for item in results)
@@ -302,6 +395,7 @@ def run_autonomous_benchmark(
             "isolation": isolation,
             "sandbox_image": sandbox_image if isolation == "docker" else None,
             "provider_class": f"{type(provider).__module__}.{type(provider).__qualname__}",
+            "generation_settings": _generation_settings(provider),
         },
         "cases": len(cases),
         "passed": passed_count,
@@ -312,6 +406,8 @@ def run_autonomous_benchmark(
         "results": results,
         "limitations": [
             "Model patch generation is autonomous only within the configured provider's response.",
+            "Protocol repair is bounded to one additional model call and never replaces patch validation.",
+            "Raw responses are not stored in this report; opt-in redacted diagnostics use a temporary directory.",
             "Passing tests prove only behavior covered by those tests.",
             "Trusted execution is not an OS sandbox; use a reviewed local Docker image for untrusted code.",
             "Each task is evaluated once; repeat runs to estimate variance.",

@@ -14,6 +14,14 @@ from aurix.collaboration import consult_other_ais
 from aurix.knowledge import KnowledgeIndex
 from aurix.memory.base import MemoryStore
 from aurix.memory.retrieval import retrieve_memories
+from aurix.protocol import (
+    ProtocolDiagnostics,
+    build_repair_prompt,
+    parse_protocol_response,
+    protocol_error_message,
+    redact_text,
+    response_fingerprint,
+)
 from aurix.providers.base import Provider
 from aurix.research import fetch_authorized_public_url
 from aurix.runtime import ContextBudget, ResponseCache, env_int
@@ -75,6 +83,7 @@ class Orchestrator:
         context_tokens: int | None = None,
         response_cache: ResponseCache | None = None,
         enable_response_cache: bool = True,
+        protocol_diagnostics: ProtocolDiagnostics | None = None,
     ) -> None:
         self.provider = provider
         self.max_steps = max(1, min(int(max_steps), 20))
@@ -106,6 +115,7 @@ class Orchestrator:
         self.enable_response_cache = bool(enable_response_cache) and os.getenv(
             "AURIX_CACHE_ENABLED", "true"
         ).lower() not in {"0", "false", "no", "off"}
+        self.protocol_diagnostics = protocol_diagnostics or ProtocolDiagnostics()
         self.enable_knowledge_retrieval = os.getenv("AURIX_RAG_ENABLED", "true").lower() not in {
             "0",
             "false",
@@ -439,8 +449,15 @@ class Orchestrator:
             raw = self.response_cache.get(cache_key) if self.enable_response_cache else None
             call_started = time.perf_counter()
             cache_hit = raw is not None
+            provider_error: str | None = None
+            provider_error_detail: str | None = None
             if not cache_hit:
-                raw = self.provider.generate(bounded_prompt, system=system_prompt)
+                try:
+                    raw = self.provider.generate(bounded_prompt, system=system_prompt)
+                except Exception as exc:  # noqa: BLE001 - a provider failure must not abort the run
+                    raw = ""
+                    provider_error = type(exc).__name__
+                    provider_error_detail = redact_text(str(exc), limit=300)
             elapsed = round((time.perf_counter() - call_started) * 1000, 2)
             trace_item = {
                 "step": step,
@@ -452,24 +469,124 @@ class Orchestrator:
                 "context_compacted": compacted,
             }
             trace.append(trace_item)
+            if provider_error is not None:
+                trace_item["provider_error"] = provider_error
+                trace_item["provider_error_detail"] = provider_error_detail
+                trace_item["protocol_outcome"] = "provider_error"
+                status, last_message = (
+                    "invalid_response",
+                    f"Model provider failed ({provider_error}); no tool was executed.",
+                )
+                break
             if not isinstance(raw, str) or len(raw) > 100_000:
                 trace_item["protocol_error"] = "response_not_text_or_too_large"
+                trace_item["protocol_outcome"] = "invalid"
                 status, last_message = (
                     "invalid_response",
                     "Model response was not text or exceeded the 100000-character limit.",
                 )
                 break
-            try:
-                payload = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
-                trace_item["protocol_error"] = "invalid_json"
-                status, last_message = (
-                    "invalid_response",
-                    "Model response was not valid JSON; no tool was executed.",
+            trace_item["response_sha256"] = response_fingerprint(raw)
+            parsed = parse_protocol_response(raw)
+            trace_item["protocol_attempts"] = 1
+            if parsed.ok:
+                trace_item["protocol_outcome"] = (
+                    "valid_extracted"
+                    if parsed.extraction_method not in {None, "direct"}
+                    else "valid"
                 )
-                break
+                if parsed.extraction_method not in {None, "direct"}:
+                    trace_item["protocol_extraction"] = parsed.extraction_method
+            else:
+                trace_item["original_protocol_error"] = parsed.error
+                trace_item["original_response_sha256"] = trace_item["response_sha256"]
+                trace_item["original_response_chars"] = len(raw)
+                self.protocol_diagnostics.record(
+                    step=step, attempt=1, outcome="invalid", raw=raw, error=parsed.error
+                )
+                repair_prompt = build_repair_prompt(raw, parsed.error)
+                bounded_repair, repair_compacted = self.context_budget.fit(
+                    repair_prompt, fixed_tokens=estimate_tokens(system_prompt)
+                )
+                repair_started = time.perf_counter()
+                repair_provider_error: str | None = None
+                repair_provider_error_detail: str | None = None
+                try:
+                    repaired_raw = self.provider.generate(bounded_repair, system=system_prompt)
+                except Exception as exc:  # noqa: BLE001 - a repair failure must not abort the run
+                    repaired_raw = ""
+                    repair_provider_error = type(exc).__name__
+                    repair_provider_error_detail = redact_text(str(exc), limit=300)
+                trace_item["repair_attempted"] = True
+                trace_item["repair_latency_ms"] = round(
+                    (time.perf_counter() - repair_started) * 1000, 2
+                )
+                trace_item["repair_context_compacted"] = repair_compacted
+                if repair_provider_error is not None:
+                    trace_item["repair_error"] = "provider_error"
+                    trace_item["provider_error"] = repair_provider_error
+                    trace_item["provider_error_detail"] = repair_provider_error_detail
+                    trace_item["protocol_outcome"] = "repair_failed"
+                    trace_item["protocol_attempts"] = 2
+                    status, last_message = (
+                        "invalid_response",
+                        (
+                            f"Model repair call failed ({repair_provider_error}); "
+                            "no tool was executed."
+                        ),
+                    )
+                    break
+                trace_item["repaired_response_chars"] = (
+                    len(repaired_raw) if isinstance(repaired_raw, str) else 0
+                )
+                if isinstance(repaired_raw, str):
+                    trace_item["repaired_response_sha256"] = response_fingerprint(repaired_raw)
+                    trace_item["repair_estimated_output_tokens"] = estimate_tokens(repaired_raw)
+                if not isinstance(repaired_raw, str) or len(repaired_raw) > 100_000:
+                    trace_item["repair_error"] = "response_not_text_or_too_large"
+                    trace_item["protocol_outcome"] = "repair_failed"
+                    trace_item["protocol_attempts"] = 2
+                    self.protocol_diagnostics.record(
+                        step=step,
+                        attempt=2,
+                        outcome="invalid",
+                        raw=repaired_raw if isinstance(repaired_raw, str) else "",
+                        error="response_not_text_or_too_large",
+                    )
+                    status, last_message = (
+                        "invalid_response",
+                        "Model repair response was not text or exceeded the 100000-character limit.",
+                    )
+                    break
+                repaired = parse_protocol_response(repaired_raw)
+                self.protocol_diagnostics.record(
+                    step=step,
+                    attempt=2,
+                    outcome="valid" if repaired.ok else "invalid",
+                    raw=repaired_raw,
+                    error=repaired.error,
+                )
+                if not repaired.ok:
+                    trace_item["repair_error"] = repaired.error
+                    trace_item["protocol_outcome"] = "repair_failed"
+                    trace_item["protocol_attempts"] = 2
+                    trace_item["protocol_error"] = repaired.error
+                    status, last_message = (
+                        "invalid_response",
+                        protocol_error_message(repaired.error),
+                    )
+                    break
+                trace_item["protocol_outcome"] = "valid_after_repair"
+                trace_item["protocol_attempts"] = 2
+                if repaired.extraction_method not in {None, "direct"}:
+                    trace_item["protocol_extraction"] = repaired.extraction_method
+                raw = repaired_raw
+                parsed = repaired
+                trace_item["selected_response_sha256"] = response_fingerprint(raw)
+            payload = parsed.payload
             if not isinstance(payload, dict):
                 trace_item["protocol_error"] = "json_not_object"
+                trace_item["protocol_outcome"] = "invalid"
                 status, last_message = (
                     "invalid_response",
                     "Model response must be a JSON object; no tool was executed.",
@@ -479,7 +596,8 @@ class Orchestrator:
             message_value = payload.get("message", "")
             trace_item["action"] = str(action)[:40]
             if action not in {"final", "need_context", "tool_call"}:
-                trace_item["protocol_error"] = "unsupported_status"
+                trace_item["protocol_error"] = "invalid_status"
+                trace_item["protocol_outcome"] = "invalid"
                 status, last_message = (
                     "invalid_response",
                     "Model returned an unsupported response status.",
@@ -610,7 +728,13 @@ class Orchestrator:
                 "prompt_chars_sent": sent_input_chars,
                 "estimated_input_tokens_sent": sent_input_tokens,
                 "estimated_output_tokens": sum(
-                    item.get("estimated_output_tokens", 0) for item in trace
+                    item.get("estimated_output_tokens", 0)
+                    + item.get("repair_estimated_output_tokens", 0)
+                    for item in trace
+                ),
+                "protocol_repairs": sum(1 for item in trace if item.get("repair_attempted")),
+                "protocol_failures": sum(
+                    1 for item in trace if item.get("protocol_outcome") == "repair_failed"
                 ),
                 "context_token_limit": self.context_budget.max_input_tokens,
                 "context_compactions": context_compactions,

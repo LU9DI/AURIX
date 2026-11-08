@@ -1,0 +1,163 @@
+[
+  {
+    "id": "fix-add-subtraction",
+    "fixture": "fixtures/add-subtraction",
+    "task": "Fix the bug in calculator.py: add(a, b) must add its inputs, not subtract them. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-negative-absolute",
+    "fixture": "fixtures/negative-absolute",
+    "task": "Fix the bug in calculator.py: absolute_value(n) must return the mathematical absolute value for positive, zero, and negative integers. Inspect tests and propose the smallest unified diff using propose_patch.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-even-check",
+    "fixture": "fixtures/even-check",
+    "task": "Fix the bug in calculator.py: is_even(n) must return True exactly when n is divisible by 2, including negative even integers and zero. Inspect tests and propose the smallest unified diff using propose_patch.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-clamp",
+    "fixture": "fixtures/v2/clamp",
+    "task": "Fix the bug in calculator.py: clamp(x, lo, hi) must restrict x to the closed interval [lo, hi]. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-reverse-words",
+    "fixture": "fixtures/v2/reverse-words",
+    "task": "Fix the bug in calculator.py: reverse_words(s) must reverse the order of the words, joined by single spaces. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-count-vowels",
+    "fixture": "fixtures/v2/count-vowels",
+    "task": "Fix the bug in calculator.py: count_vowels(s) must count a, e, i, o, u in either case. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-factorial",
+    "fixture": "fixtures/v2/factorial",
+    "task": "Fix the bug in calculator.py: factorial(n) must return n! for n >= 0. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-palindrome",
+    "fixture": "fixtures/v2/palindrome",
+    "task": "Fix the bug in calculator.py: is_palindrome(s) must ignore case and non-alphanumeric characters. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-fizzbuzz",
+    "fixture": "fixtures/v2/fizzbuzz",
+    "task": "Fix the bug in calculator.py: fizzbuzz(n) must return 'FizzBuzz' for multiples of 15, 'Fizz' for 3, 'Buzz' for 5, else str(n). Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-max-of",
+    "fixture": "fixtures/v2/max-of",
+    "task": "Fix the bug in calculator.py: max_of(xs) must return the largest element of a non-empty list, including all-negative lists. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-average",
+    "fixture": "fixtures/v2/average",
+    "task": "Fix the bug in calculator.py: average(xs) must return the arithmetic mean as a float, and 0.0 for an empty list. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-flatten",
+    "fixture": "fixtures/v2/flatten",
+    "task": "Fix the bug in calculator.py: flatten(xss) must flatten one level of nested lists, preserving order. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-unique-sorted",
+    "fixture": "fixtures/v2/unique-sorted",
+    "task": "Fix the bug in calculator.py: unique_sorted(xs) must return the distinct elements in ascending order. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-title-case",
+    "fixture": "fixtures/v2/title-case",
+    "task": "Fix the bug in calculator.py: title_case(s) must capitalize the first letter of every space-separated word and lowercase the rest. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-gcd",
+    "fixture": "fixtures/v2/gcd",
+    "task": "Fix the bug in calculator.py: gcd(a, b) must return the greatest common divisor of two non-negative integers. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-leap-year",
+    "fixture": "fixtures/v2/leap-year",
+    "task": "Fix the bug in calculator.py: is_leap(y) must follow the Gregorian leap-year rules. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-binary-search",
+    "fixture": "fixtures/v2/binary-search",
+    "task": "Fix the bug in calculator.py: binary_search(xs, t) must return the index of t in a sorted list, or -1; every element, including the last, must be found. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-sum-digits",
+    "fixture": "fixtures/v2/sum-digits",
+    "task": "Fix the bug in calculator.py: sum_digits(n) must return the sum of the decimal digits of abs(n). Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-chunk",
+    "fixture": "fixtures/v2/chunk",
+    "task": "Fix the bug in calculator.py: chunk(xs, n) must split xs into consecutive pieces of size n, keeping the shorter last piece. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-merge-dicts",
+    "fixture": "fixtures/v2/merge-dicts",
+    "task": "Fix the bug in calculator.py: merge_dicts(a, b) must return a new dict with b's values overriding a's, without mutating a. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-c-to-f",
+    "fixture": "fixtures/v2/c-to-f",
+    "task": "Fix the bug in calculator.py: c_to_f(c) must convert Celsius to Fahrenheit. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-second-largest",
+    "fixture": "fixtures/v2/second-largest",
+    "task": "Fix the bug in calculator.py: second_largest(xs) must return the second largest distinct value. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  },
+  {
+    "id": "fix-strip-prefix",
+    "fixture": "fixtures/v2/strip-prefix",
+    "task": "Fix the bug in calculator.py: strip_prefix(s, p) must remove p from the start of s exactly once, only if s starts with p. Inspect the tests, propose the smallest unified diff using propose_patch, and do not claim success unless verification passes.",
+    "expect_baseline_passed": false,
+    "expect_candidate_passed": true
+  }
+]

@@ -10,6 +10,20 @@ def _output_limit() -> int:
         return 2048
 
 
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 class OllamaProvider:
     """Minimal adapter for Ollama's local /api/chat endpoint."""
 
@@ -18,6 +32,18 @@ class OllamaProvider:
         self.base_url = (base_url or os.getenv("AURIX_BASE_URL", "http://localhost:11434")).rstrip(
             "/"
         )
+        self.temperature = _float_env("AURIX_TEMPERATURE", 0.0)
+        self.seed = _int_env("AURIX_SEED", 0)
+
+    def generation_settings(self) -> dict[str, object]:
+        """Expose determinism settings for reports without storing prompts."""
+
+        return {
+            "temperature": self.temperature,
+            "seed": self.seed,
+            "max_output_tokens": max(1, min(_output_limit(), 32768)),
+            "supported": {"temperature": True, "seed": True},
+        }
 
     def generate(self, prompt: str, *, system: str = "") -> str:
         messages = [{"role": "system", "content": system}] if system else []
@@ -29,7 +55,11 @@ class OllamaProvider:
                     "model": self.model,
                     "messages": messages,
                     "stream": False,
-                    "options": {"num_predict": max(1, min(_output_limit(), 32768))},
+                    "options": {
+                        "num_predict": max(1, min(_output_limit(), 32768)),
+                        "temperature": self.temperature,
+                        "seed": self.seed,
+                    },
                 },
             )
             response.raise_for_status()

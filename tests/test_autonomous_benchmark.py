@@ -32,6 +32,7 @@ def _suite(tmp_path: Path) -> Path:
                     "task": "Fix add(a, b) so it adds its arguments and use propose_patch.",
                     "expect_baseline_passed": False,
                     "expect_candidate_passed": True,
+                    "allowed_patch_paths": ["calculator.py"],
                 }
             ]
         ),
@@ -59,6 +60,8 @@ def test_autonomous_benchmark_model_proposal_fixes_bug_in_disposable_copy(tmp_pa
     assert case["baseline"]["passed"] is False
     assert case["candidate"]["passed"] is True
     assert len(case["proposal_id"]) == 12
+    assert case["timings_ms"]["total_ms"] >= case["timings_ms"]["agent_ms"] >= 0
+    assert case["timings_ms"]["candidate_test_ms"] >= 0
     assert (tmp_path / "fixture" / "calculator.py").read_text(encoding="utf-8") == original
 
 
@@ -81,3 +84,85 @@ def test_autonomous_benchmark_fails_when_model_does_not_propose_patch(tmp_path):
     report = run_autonomous_benchmark(_suite(tmp_path), provider, confirm=True, timeout_seconds=10)
     assert report["failed"] == 1
     assert report["results"][0]["status"] == "no_unique_proposal"
+
+
+def test_autonomous_benchmark_counts_invalid_json_as_failure(tmp_path):
+    report = run_autonomous_benchmark(
+        _suite(tmp_path),
+        SequenceProvider("this is not JSON", "this is still not JSON"),
+        confirm=True,
+        timeout_seconds=10,
+    )
+    assert report["failed"] == 1
+    assert report["results"][0]["status"] == "no_unique_proposal"
+    assert report["results"][0]["agent"]["status"] == "invalid_response"
+    assert report["results"][0]["agent"]["trace"][0]["protocol_outcome"] == "repair_failed"
+
+
+def test_autonomous_benchmark_counts_test_timeout_as_failure(tmp_path):
+    suite = _suite(tmp_path)
+    (tmp_path / "fixture" / "test_calculator.py").write_text(
+        "import time\n\ndef test_add():\n    time.sleep(2)\n",
+        encoding="utf-8",
+    )
+    report = run_autonomous_benchmark(suite, _provider(), confirm=True, timeout_seconds=1)
+    case = report["results"][0]
+    assert report["failed"] == 1
+    assert case["baseline"]["timed_out"] is True
+    assert case["candidate"]["timed_out"] is True
+
+
+def test_autonomous_benchmark_rejects_patch_to_test_file(tmp_path):
+    patch = (
+        "--- a/test_calculator.py\n"
+        "+++ b/test_calculator.py\n"
+        "@@ -1,4 +1,4 @@\n"
+        " from calculator import add\n"
+        " \n"
+        " def test_add():\n"
+        "-    assert add(2, 3) == 5\n"
+        "+    assert True\n"
+    )
+    provider = SequenceProvider(
+        json.dumps({"status": "tool_call", "tool": "propose_patch", "arguments": {"patch": patch}}),
+        json.dumps({"status": "final", "message": "Prepared a patch."}),
+    )
+    report = run_autonomous_benchmark(_suite(tmp_path), provider, confirm=True, timeout_seconds=10)
+    assert report["failed"] == 1
+    assert report["results"][0]["status"] == "invalid_patch"
+    assert "outside the declared allowed set" in report["results"][0]["patch_error"]
+
+
+def test_autonomous_benchmark_repair_still_requires_real_patch(tmp_path):
+    provider = SequenceProvider(
+        json.dumps({"message": "I will fix it"}),
+        json.dumps({"status": "final", "message": "I would fix it."}),
+    )
+    report = run_autonomous_benchmark(_suite(tmp_path), provider, confirm=True, timeout_seconds=10)
+
+    assert report["failed"] == 1
+    assert report["results"][0]["status"] == "no_unique_proposal"
+    assert report["results"][0]["agent"]["trace"][0]["protocol_outcome"] == "valid_after_repair"
+
+
+def test_autonomous_benchmark_repair_does_not_bypass_patch_validation(tmp_path):
+    patch = (
+        "--- a/test_calculator.py\n"
+        "+++ b/test_calculator.py\n"
+        "@@ -1,4 +1,4 @@\n"
+        " from calculator import add\n"
+        " \n"
+        " def test_add():\n"
+        "-    assert add(2, 3) == 5\n"
+        "+    assert True\n"
+    )
+    provider = SequenceProvider(
+        "not json",
+        json.dumps({"status": "tool_call", "tool": "propose_patch", "arguments": {"patch": patch}}),
+        json.dumps({"status": "final", "message": "Prepared a patch."}),
+    )
+    report = run_autonomous_benchmark(_suite(tmp_path), provider, confirm=True, timeout_seconds=10)
+
+    assert report["failed"] == 1
+    assert report["results"][0]["status"] == "invalid_patch"
+    assert "outside the declared allowed set" in report["results"][0]["patch_error"]

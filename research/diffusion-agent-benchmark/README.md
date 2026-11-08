@@ -129,3 +129,10 @@ The repository changes were made remotely. The suite has **not** been executed i
 ## Relationship to the existing ternary patch-LM experiment
 
 The float-vs-ternary results remain separate in [PR #13](https://github.com/LU9DI/AURIX/pull/13). Do not merge those results with diffusion measurements into a single headline. First establish whether parallel denoising improves verified task completion; then test ternary weights and external memory as independent ablations.
+
+## Suite v2 (23 tasks)
+`build_suite_v2.py` generates `suite/suite_v2.json` (the 3 original tasks + 20 new single-file bug fixes under
+`suite/fixtures/v2/`) and runs gate 1 on all of them: original fails, known-good patch passes, plausible wrong patch
+fails (23/23 required; the 20 new ones verified). Use `compare_arms.py --suite suite/suite_v2.json --repeats 10`
+(230 attempts per arm). Still synthetic and tiny: it can detect large differences in verified pass rate, not
+broad coding ability. Do not put these fixtures in any training or few-shot data.
