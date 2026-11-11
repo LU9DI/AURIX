@@ -71,6 +71,21 @@ AURIX_API_KEY=
 
 Hosted compatible APIs are also possible, but are **opt-in** and may cost money. AURIX does not silently switch from a local model to a hosted provider if local inference fails. Provider selection lives behind one interface.
 
+### CPU-only completion engine (no GPU, no tokens, no network)
+
+`AURIX_PROVIDER=ngram` selects a byte-level n-gram language model built from the source files under `AURIX_NGRAM_ROOT` (interpolated absolute discounting; contexts up to 7 bytes are exact, longer ones use a 56-bit mixed hash). It needs only `pip install '.[cpu-lm]'` (numpy). Inference is table lookups: no GPU, no neural network, no vocabulary, no API.
+
+It is a **code-continuation engine, not an instruction-following model**: `system` is ignored and the prompt is treated as a code prefix. Keep a real model for tasks that need instructions, and use this one where cheap pattern completion is enough. Its cost is memory (tables grow with the corpus, so the corpus is capped by `AURIX_NGRAM_MAX_CORPUS_BYTES`).
+
+Measured on 3.2 MB of Python/JS/TS from this author's repositories (deduplicated, validation on files not seen in training, one split, no confidence interval):
+
+| Model | Bits per byte (lower is better) |
+|---|---|
+| This n-gram model, order 6 | 1.71 |
+| Tiny byte-level transformer (0.9M params, 25 min CPU training) | 2.35 |
+
+As a *generator* it is weak: with greedy decoding from a real 200+ byte prefix, order 12 reproduces on average 6.3 of the next 40 bytes correctly, 1.2% of continuations are fully correct, and 20% degenerate into repetition (order 6: 3.8 bytes, 0%, 34%). Treat output as a suggestion to be verified, not as code to trust. Orders above 7 fit probabilities worse (hold-out bits per byte rise from 1.54 at order 6 to 1.68 at order 12) but copy long patterns better; the default of 12 favours generation.
+
 **Can we build our own model?** Yes, incrementally: first our own orchestration, evaluation, memory, retrieval, tool-use and inference runtime; later fine-tune an open-weight model on licensed data if benchmarks justify it. Training a competitive foundation model from scratch is a separate, expensive research effort—not something solved by changing the inference server.
 
 Run `aurix --doctor --workspace .` for read-only environment checks. Add `--probe-provider` to send a live test prompt; this can consume compute or API credits. Probe output suppresses raw model responses and exception details.
