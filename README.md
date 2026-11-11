@@ -2,7 +2,7 @@
 
 **Local-first AI engineering agent.** AURIX is a public repository for an agent that can inspect software projects, plan changes, use tools safely, run tests, and learn from measured outcomes—with no paid API required by default. The repository currently has no open-source license file. Public visibility does not grant permission to copy, modify, or redistribute the code; prior releases and commits may remain subject to previously published license terms.
 
-> Status: v0.85.0 research release; REA CLI investigation commands are allowlisted; not production-ready autonomous software engineering.
+> Status: v0.85.0, active development (pre-1.0). REA CLI investigation commands are allowlisted. Autonomous changes should still be reviewed by a human before merging.
 
 ## Principles
 - **Local-first:** local inference first; remote providers are optional adapters.
@@ -813,4 +813,4 @@ The Python package, tests, project configuration, and CI workflow live at the re
 
 ## Security and release status
 
-This is a research release, not production-ready autonomous coding software. The default `trusted` test mode executes code on the host and is not a sandbox. Research page retrieval rejects non-public destinations, pins each connection to a validated IP, preserves TLS hostname verification, disables redirects, rejects compressed responses, and bounds response buffering. Remote OpenAI-compatible endpoints must use HTTPS; plain HTTP is accepted only for loopback hosts. Response-cache fingerprints hash file contents within explicit byte budgets, while oversized files use a documented metadata-based fallback. Continue to use network egress controls when deploying.
+AURIX is in active development (pre-1.0): review its proposed changes before applying them. The default `trusted` test mode executes code on the host and is not a sandbox. Research page retrieval rejects non-public destinations, pins each connection to a validated IP, preserves TLS hostname verification, disables redirects, rejects compressed responses, and bounds response buffering. Remote OpenAI-compatible endpoints must use HTTPS; plain HTTP is accepted only for loopback hosts. Response-cache fingerprints hash file contents within explicit byte budgets, while oversized files use a documented metadata-based fallback. Continue to use network egress controls when deploying.

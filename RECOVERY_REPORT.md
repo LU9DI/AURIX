@@ -20,5 +20,5 @@ The previous recovery process checked the locally available archive manifest and
 ## Known limitations
 
 - Historical source files may retain old version references.
-- The project remains research software, not production-ready.
+- The project is in active development (pre-1.0) and has not had an independent security audit.
 - Do not execute untrusted project code on the host; the default `trusted` verification mode is not an OS sandbox.
