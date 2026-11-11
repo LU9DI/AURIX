@@ -1,0 +1,6 @@
+aegis              todos:   0.0% de  16589 linhas | sem commits > limite:   0.3% de   2314 linhas
+aurix              todos:  31.1% de  50307 linhas | sem commits > limite:   5.9% de   5299 linhas
+backend            todos:   0.9% de  34667 linhas | sem commits > limite:   4.4% de   6731 linhas
+saas-reputacao-ia  todos:   0.4% de  36642 linhas | sem commits > limite:   8.1% de   1928 linhas
+tax-platform-br    todos:   2.9% de   8822 linhas | sem commits > limite:   3.8% de   6776 linhas
+zion               todos:   0.4% de  22509 linhas | sem commits > limite:   2.0% de   4244 linhas

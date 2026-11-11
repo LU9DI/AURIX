@@ -1,0 +1,6 @@
+# python prior_corpus.py REPO ts|py BYTES   (n-gram ordem 10; teste = ultimo bloco cronologico do codigo novo)
+# BPB = bits por byte. A = so passado do repo; B = so corpus generico; C = generico + passado.
+tax-platform-br (ts, generico 12 MB de node_modules locais): A=2.56  B=6.15  C=2.76
+aurix           (py, generico 12 MB de stdlib+dist-packages): A=3.61  B=3.80  C=3.03
+aurix           (py, generico 4 MB):                          A=3.61  B=3.92  C=3.03
+aurix           (py, generico 1.5 MB):                        A=3.61  B=4.16  C=3.10
