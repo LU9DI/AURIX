@@ -1,11 +1,16 @@
 from pathlib import Path
+import errno
+import os
 import hashlib
 import json
 import subprocess
 
 import pytest
 
+import aurix.tools.patches as patches
+from aurix.tools.provenance import append_audit_event
 from aurix.tools.patches import (
+    _write_transaction_journal,
     _workspace_operation_lock,
     apply_proposal,
     finalize_interrupted_recovery,
@@ -1165,6 +1170,34 @@ def test_recovery_replay_refuses_already_rolled_back_transaction(tmp_path):
 
 
 
+def test_recovery_refuses_journal_mutation_during_audit_preflight(tmp_path, monkeypatch):
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    record = json.loads(journal_path.read_text(encoding="utf-8"))
+    record.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(record), encoding="utf-8")
+    original_verify = patches._verified_lifecycle_audit_events
+    injected = False
+
+    def verify_then_edit(workspace):
+        nonlocal injected
+        result = original_verify(workspace)
+        changed = json.loads(journal_path.read_text(encoding="utf-8"))
+        changed["external_metadata_change"] = True
+        journal_path.write_text(json.dumps(changed), encoding="utf-8")
+        injected = True
+        return result
+
+    monkeypatch.setattr(patches, "_verified_lifecycle_audit_events", verify_then_edit)
+    with pytest.raises(PermissionError, match="journal changed during recovery preflight"):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert injected
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'" + chr(10)
+    assert json.loads(journal_path.read_text(encoding="utf-8"))["external_metadata_change"] is True
+
+
 def test_recovery_accepts_applying_journal_when_exact_patch_is_present(tmp_path):
     """Recover a crash after git apply but before persisting patch_applied."""
     from aurix.tools.patches import recover_transaction
@@ -1278,7 +1311,7 @@ def test_recovery_concurrent_edit_after_intent_fails_closed(tmp_path, monkeypatc
             )
 
     monkeypatch.setattr(patches, "_write_transaction_journal", write_then_race)
-    with pytest.raises(RuntimeError, match="Exact rollback failed"):
+    with pytest.raises(PermissionError, match="changed after recovery journal persistence"):
         patches.recover_transaction(root, proposal_id, confirm=True)
 
     assert injected is True
@@ -2007,6 +2040,31 @@ def test_inspection_cross_checks_applied_journal_with_verified_audit_event(tmp_p
     assert "lifecycle audit event does not match" in row["reason"]
 
 
+def test_lifecycle_audit_verification_rejects_log_replacement_during_read(tmp_path, monkeypatch):
+    root, proposal_id = make_repo(tmp_path)
+    append_audit_event(root, "test_event", proposal_id, {"patch_sha256": "0" * 64})
+    log = root / ".aurix" / "audit.jsonl"
+    original_read = patches._read_regular_file
+    replaced = False
+
+    def replace_after_read(path, *, max_bytes, label):
+        nonlocal replaced
+        payload = original_read(path, max_bytes=max_bytes, label=label)
+        if Path(path) == log and not replaced:
+            replacement = log.with_suffix(".replacement")
+            replacement.write_bytes(log.read_bytes())
+            os.replace(replacement, log)
+            replaced = True
+        return payload
+
+    monkeypatch.setattr(patches, "_read_regular_file", replace_after_read)
+    events, error = patches._verified_lifecycle_audit_events(root)
+
+    assert replaced
+    assert events == {}
+    assert error == "audit log changed during verification"
+
+
 def test_inspection_rejects_corrupted_audit_chain_for_terminal_journal(tmp_path):
     root, proposal_id = make_repo(tmp_path)
     apply_proposal(root, proposal_id, confirm=True)
@@ -2297,3 +2355,844 @@ def test_revert_does_not_finalize_when_target_has_external_edit(tmp_path):
     report = inspect_transactions(root)
     row = next(item for item in report["transactions"] if item["proposal_id"] == proposal_id)
     assert row["status"] == "manual_intervention_required"
+
+
+
+def test_revert_does_not_finalize_when_external_edit_races_with_audit_persistence(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_append = patches.append_audit_event
+    changed = False
+
+    def append_then_edit(workspace, event, current_id, details):
+        nonlocal changed
+        result = original_append(workspace, event, current_id, details)
+        if event == "proposal_reverted" and current_id == proposal_id and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# external edit" + chr(10),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", append_then_edit)
+
+    with pytest.raises(RuntimeError, match="changed during reversal audit persistence"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# external edit" + chr(10)
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "reverting"
+    events = [
+        json.loads(line)
+        for line in (root / ".aurix" / "audit.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+    assert events[-1]["event"] == "proposal_reverted"
+    report = inspect_transactions(root)
+    row = next(
+        item for item in report["transactions"] if item["proposal_id"] == proposal_id
+    )
+    assert row["status"] == "manual_intervention_required"
+
+
+
+def test_apply_does_not_finalize_when_other_tracked_file_changes_during_audit(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    other = root / "other.py"
+    other.write_text("stable = True" + chr(10), encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "other.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", "add unrelated tracked file"],
+        check=True,
+        capture_output=True,
+    )
+    original_append = patches.append_audit_event
+    changed = False
+
+    def append_then_edit(workspace, event, current_id, details):
+        nonlocal changed
+        result = original_append(workspace, event, current_id, details)
+        if event == "proposal_applied" and current_id == proposal_id and not changed:
+            changed = True
+            other.write_text("external = True" + chr(10), encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", append_then_edit)
+
+    with pytest.raises(RuntimeError, match="Repository changed after the application audit event"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert other.read_text(encoding="utf-8") == "external = True" + chr(10)
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'" + chr(10)
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    report = inspect_transactions(root)
+    row = next(
+        item for item in report["transactions"] if item["proposal_id"] == proposal_id
+    )
+    assert row["status"] == "manual_intervention_required"
+
+
+def test_revert_audit_failure_does_not_mark_recovery_verified_after_external_edit(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_append = patches.append_audit_event
+    original_git = patches._git
+
+    def fail_revert_audit(workspace, event, current_id, details):
+        if event == "proposal_reverted" and current_id == proposal_id:
+            raise OSError("simulated reversal audit failure")
+        return original_append(workspace, event, current_id, details)
+
+    def edit_after_forward_recovery(workspace, args, **kwargs):
+        result = original_git(workspace, args, **kwargs)
+        if list(args) == ["apply", "--whitespace=error", "-"] and result.returncode == 0:
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# external recovery edit" + chr(10),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", fail_revert_audit)
+    monkeypatch.setattr(patches, "_git", edit_after_forward_recovery)
+
+    with pytest.raises(RuntimeError, match="recovery could not be verified"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'new'" + chr(10) + "# external recovery edit" + chr(10)
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "reverting"
+    assert journal["recovery"] == "pending_verification"
+    report = inspect_transactions(root)
+    row = next(
+        item for item in report["transactions"] if item["proposal_id"] == proposal_id
+    )
+    assert row["status"] == "manual_intervention_required"
+
+
+
+def test_apply_downgrades_terminal_journal_if_external_edit_races_with_journal_write(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    other = root / "other.py"
+    other.write_text("stable = True" + chr(10), encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "other.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-m", "add unrelated tracked file"],
+        check=True,
+        capture_output=True,
+    )
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def write_then_edit(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "applied_and_audited" and not changed:
+            changed = True
+            other.write_text("external = True" + chr(10), encoding="utf-8")
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", write_then_edit)
+
+    with pytest.raises(RuntimeError, match="changed during terminal journal persistence"):
+        apply_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert other.read_text(encoding="utf-8") == "external = True" + chr(10)
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "patch_applied"
+    assert journal["recovery"] == "pending_verification"
+
+
+def test_revert_downgrades_terminal_journal_if_external_edit_races_with_journal_write(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def write_then_edit(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "reverted_and_audited" and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# external edit" + chr(10),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", write_then_edit)
+
+    with pytest.raises(RuntimeError, match="changed during terminal journal persistence"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# external edit" + chr(10)
+    )
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "reverting"
+    assert journal["recovery"] == "pending_verification"
+
+
+
+def test_legacy_reversal_creates_recovery_journal_before_mutation(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal_path.unlink()
+    original_append = patches.append_audit_event
+    changed = False
+
+    def append_then_edit(workspace, event, current_id, details):
+        nonlocal changed
+        result = original_append(workspace, event, current_id, details)
+        if event == "proposal_reverted" and current_id == proposal_id and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# legacy external edit" + chr(10),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", append_then_edit)
+
+    with pytest.raises(RuntimeError, match="changed during reversal audit persistence"):
+        revert_proposal(root, proposal_id, confirm=True)
+
+    assert changed
+    assert journal_path.exists()
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert journal["state"] == "reverting"
+    assert journal["recovery"] == "pending_verification"
+    assert journal["patch_sha256"]
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# legacy external edit" + chr(10)
+    )
+
+
+def test_recover_transaction_downgrades_if_external_edit_races_with_audit(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    original_append = patches.append_audit_event
+    changed = False
+
+    def append_then_edit(workspace, event, current_id, details):
+        nonlocal changed
+        result = original_append(workspace, event, current_id, details)
+        if event == "transaction_recovered" and current_id == proposal_id and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# recovery race" + chr(10),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", append_then_edit)
+    with pytest.raises(RuntimeError, match="changed during recovery finalization"):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# recovery race" + chr(10)
+    )
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "recovery_interrupted"
+    assert final["recovery"] == "manual_intervention_required"
+
+
+def test_finalize_recovery_downgrades_if_external_edit_races_with_audit(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="recovery_interrupted", recovery="manual_intervention_required")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(root), "apply", "--reverse", "--whitespace=error", "-"],
+        input=(root / ".aurix" / "proposals" / f"{proposal_id}.diff").read_text(encoding="utf-8"),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    original_append = patches.append_audit_event
+    changed = False
+
+    def append_then_edit(workspace, event, current_id, details):
+        nonlocal changed
+        result = original_append(workspace, event, current_id, details)
+        if event == "transaction_recovery_finalized" and current_id == proposal_id and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# finalize race" + chr(10),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(patches, "append_audit_event", append_then_edit)
+    with pytest.raises(RuntimeError, match="changed during recovery finalization"):
+        finalize_interrupted_recovery(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'old'" + chr(10) + "# finalize race" + chr(10)
+    )
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "recovery_interrupted"
+    assert final["recovery"] == "manual_intervention_required"
+
+
+def test_recover_transaction_rechecks_repository_after_journal_persistence(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def write_then_edit(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "recovery_in_progress" and not changed:
+            changed = True
+            target = root / "app.py"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "# recovery preflight race" + chr(10),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(patches, "_write_transaction_journal", write_then_edit)
+    with pytest.raises(PermissionError, match="changed after recovery journal persistence"):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == (
+        "value = 'new'" + chr(10) + "# recovery preflight race" + chr(10)
+    )
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "recovery_interrupted"
+    assert final["recovery"] == "manual_intervention_required"
+
+
+def test_transaction_journal_refuses_non_regular_existing_path(tmp_path):
+    from aurix.tools.patches import _write_transaction_journal
+
+    root, proposal_id = make_repo(tmp_path)
+    journal_dir = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal_dir.parent.mkdir(parents=True, exist_ok=True)
+    journal_dir.mkdir()
+    with pytest.raises(PermissionError, match="regular file"):
+        _write_transaction_journal(
+            root,
+            proposal_id,
+            {"proposal_id": proposal_id, "state": "applying"},
+        )
+    assert journal_dir.is_dir()
+
+
+def test_transaction_journal_writer_rejects_mismatched_identity(tmp_path):
+    from aurix.tools.patches import _write_transaction_journal
+
+    root, proposal_id = make_repo(tmp_path)
+    with pytest.raises(ValueError, match="identity"):
+        _write_transaction_journal(
+            root,
+            proposal_id,
+            {"proposal_id": "ffffffffffff", "state": "applying"},
+        )
+    assert not (root / ".aurix" / "transactions" / f"{proposal_id}.json").exists()
+
+def test_workspace_operation_lock_closes_descriptor_if_fstat_fails(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, _ = make_repo(tmp_path)
+    real_close = patches.os.close
+    closed = []
+
+    def fail_fstat(_fd):
+        raise OSError("simulated fstat failure")
+
+    def track_close(fd):
+        closed.append(fd)
+        return real_close(fd)
+
+    monkeypatch.setattr(patches.os, "fstat", fail_fstat)
+    monkeypatch.setattr(patches.os, "close", track_close)
+
+    with pytest.raises(OSError, match="simulated fstat failure"):
+        with patches._workspace_operation_lock(root):
+            pytest.fail("lock setup must fail before entering the protected section")
+
+    lock_path = root / ".aurix" / "operation.lock"
+    assert lock_path.is_file()
+    assert len(closed) == 1
+
+def test_inspect_operation_lock_rejects_symlink_swap_before_read(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from aurix.tools.patches import inspect_operation_lock
+
+    root, _ = make_repo(tmp_path)
+    metadata = root / ".aurix"
+    metadata.mkdir(exist_ok=True)
+    lock_path = metadata / "operation.lock"
+    lock_path.write_text(
+        json.dumps({"pid": os.getpid(), "created_at": 1}),
+        encoding="utf-8",
+    )
+    external = tmp_path / "external-lock.json"
+    external.write_text(
+        json.dumps({"pid": os.getpid(), "created_at": 1}),
+        encoding="utf-8",
+    )
+    original_is_file = Path.is_file
+    swapped = False
+
+    def swap_after_file_check(path):
+        nonlocal swapped
+        result = original_is_file(path)
+        if path == lock_path and result and not swapped:
+            swapped = True
+            lock_path.unlink()
+            lock_path.symlink_to(external)
+        return result
+
+    monkeypatch.setattr(Path, "is_file", swap_after_file_check)
+    report = inspect_operation_lock(root)
+
+    assert swapped
+    assert report["status"] == "invalid"
+    assert "symlink" in report["reason"]
+
+def test_regular_file_snapshot_rejects_mutation_during_read(tmp_path, monkeypatch):
+    import aurix.tools.patches as patches
+
+    target = tmp_path / "journal.json"
+    target.write_text('{"state":"applying"}', encoding="utf-8")
+    real_fstat = patches.os.fstat
+    calls = 0
+
+    def mutate_snapshot(fd):
+        nonlocal calls
+        result = real_fstat(fd)
+        calls += 1
+        if calls == 2:
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                st_dev=result.st_dev,
+                st_ino=result.st_ino,
+                st_size=result.st_size,
+                st_mode=result.st_mode,
+                st_mtime_ns=result.st_mtime_ns,
+                st_ctime_ns=result.st_ctime_ns + 1,
+            )
+        return result
+
+    monkeypatch.setattr(patches.os, "fstat", mutate_snapshot)
+    with pytest.raises(PermissionError, match="changed while being read"):
+        patches._read_regular_file(target, max_bytes=1024, label="Transaction journal")
+
+def test_recovery_anchor_refuses_journal_changed_after_validation(tmp_path, monkeypatch):
+    import aurix.tools.patches as patches
+
+    root, proposal_id = make_repo(tmp_path)
+    transactions = root / ".aurix" / "transactions"
+    transactions.mkdir(parents=True)
+    journal = transactions / f"{proposal_id}.json"
+    journal.write_text(
+        json.dumps({"proposal_id": proposal_id, "state": "rolled_back", "recovery_history": []}),
+        encoding="utf-8",
+    )
+    original_verify = patches.verify_recovery_histories
+    changed = False
+
+    def verify_then_mutate(workspace):
+        nonlocal changed
+        report = original_verify(workspace)
+        if not changed:
+            changed = True
+            journal.write_text(journal.read_text(encoding="utf-8") + " ", encoding="utf-8")
+        return report
+
+    monkeypatch.setattr(patches, "verify_recovery_histories", verify_then_mutate)
+    anchor = tmp_path / "external-anchor.json"
+    with pytest.raises(PermissionError, match="changed during recovery-anchor creation"):
+        patches.create_recovery_anchor(root, anchor)
+
+    assert changed
+    assert not anchor.exists()
+
+
+
+def test_transaction_journal_directory_fsync_io_error_is_not_suppressed(tmp_path, monkeypatch):
+    import errno
+
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    record = {"proposal_id": proposal_id, "state": "before"}
+    _write_transaction_journal(root, proposal_id, record)
+    journal = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    original_fsync = patches.os.fsync
+    calls = 0
+
+    def fail_directory_fsync(fd):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError(errno.EIO, "simulated directory metadata I/O failure")
+        return original_fsync(fd)
+
+    monkeypatch.setattr(patches.os, "fsync", fail_directory_fsync)
+    updated = {"proposal_id": proposal_id, "state": "after"}
+    with pytest.raises(OSError, match="simulated directory metadata I/O failure"):
+        _write_transaction_journal(root, proposal_id, updated)
+
+    # Rename may already have happened; the caller must still learn that its
+    # durability confirmation failed and stop before advancing the transaction.
+    assert json.loads(journal.read_text(encoding="utf-8")) == updated
+    assert not list(journal.parent.glob(f"{proposal_id}.json.*.tmp"))
+
+
+def test_journal_snapshot_rejects_inventory_mutation_during_read(tmp_path, monkeypatch):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    transactions = root / ".aurix" / "transactions"
+    transactions.mkdir(parents=True)
+    first = transactions / f"{proposal_id}.json"
+    first.write_text(json.dumps({"proposal_id": proposal_id}), encoding="utf-8")
+    original_read = patches._read_regular_file
+    mutated = False
+
+    def mutate_inventory(path, *, max_bytes, label):
+        nonlocal mutated
+        payload = original_read(path, max_bytes=max_bytes, label=label)
+        if not mutated:
+            mutated = True
+            (transactions / "ffffffffffff.json").write_text(
+                json.dumps({"proposal_id": "ffffffffffff"}), encoding="utf-8"
+            )
+        return payload
+
+    monkeypatch.setattr(patches, "_read_regular_file", mutate_inventory)
+    with pytest.raises(PermissionError, match="inventory changed"):
+        patches._journal_snapshot(root)
+
+
+def test_revert_restores_applied_patch_if_git_reports_failure_after_inverse_mutation(
+    tmp_path, monkeypatch
+):
+    import subprocess
+
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    original_git = patches._git
+    injected = False
+
+    def reverse_then_report_failure(workspace, args, *, patch=None):
+        nonlocal injected
+        result = original_git(workspace, args, patch=patch)
+        if not injected and args[:3] == ["apply", "--reverse", "--whitespace=error"]:
+            injected = True
+            assert result.returncode == 0
+            return subprocess.CompletedProcess(
+                args, 1, stdout="", stderr="simulated post-mutation failure"
+            )
+        return result
+
+    monkeypatch.setattr(patches, "_git", reverse_then_report_failure)
+
+    with pytest.raises(RuntimeError, match="original patch was restored and verified"):
+        patches.revert_proposal(root, proposal_id, confirm=True)
+
+    assert injected
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'" + chr(10)
+    journal = json.loads(
+        (root / ".aurix" / "transactions" / f"{proposal_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert journal["state"] == "applied_and_audited"
+    assert journal["recovery"] == "verified"
+
+
+def test_recover_transaction_accepts_verified_base_after_git_reports_rollback_failure(
+    tmp_path, monkeypatch
+):
+    import subprocess
+
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    original_git = patches._git
+    injected = False
+
+    def reverse_then_report_failure(workspace, args, *, patch=None):
+        nonlocal injected
+        result = original_git(workspace, args, patch=patch)
+        if not injected and args[:3] == ["apply", "--reverse", "--whitespace=error"]:
+            injected = True
+            assert result.returncode == 0
+            return subprocess.CompletedProcess(
+                args, 1, stdout="", stderr="simulated post-mutation failure"
+            )
+        return result
+
+    monkeypatch.setattr(patches, "_git", reverse_then_report_failure)
+    result = patches.recover_transaction(root, proposal_id, confirm=True)
+
+    assert injected
+    assert result["status"] == "recovered"
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'" + chr(10)
+    final = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert final["state"] == "rolled_back"
+    assert final["recovery"] == "verified"
+
+
+def test_incomplete_transaction_preflight_rejects_dangling_journal_symlink(tmp_path):
+    from aurix.tools.patches import _assert_no_incomplete_transaction
+
+    root, proposal_id = make_repo(tmp_path)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal_path.parent.mkdir(parents=True, exist_ok=True)
+    journal_path.symlink_to(root / "missing-journal-target.json")
+
+    with pytest.raises(PermissionError, match="regular file"):
+        _assert_no_incomplete_transaction(root, proposal_id)
+
+
+def test_recover_transaction_refuses_journal_edit_after_intermediate_write(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(state="patch_applied", recovery="pending_verification")
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    original_write = patches._write_transaction_journal
+    changed = False
+
+    def write_then_edit_journal(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "recovery_in_progress" and not changed:
+            changed = True
+            journal_path.write_text(
+                journal_path.read_text(encoding="utf-8") + " ",
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(
+        patches, "_write_transaction_journal", write_then_edit_journal
+    )
+    with pytest.raises(
+        PermissionError, match="Recovery journal changed after persistence"
+    ):
+        recover_transaction(root, proposal_id, confirm=True)
+
+    assert changed
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'new'" + chr(10)
+    assert journal_path.read_text(encoding="utf-8").endswith(" ")
+
+
+
+def test_finalize_recovery_refuses_journal_edit_after_terminal_write(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, proposal_id = make_repo(tmp_path)
+    apply_proposal(root, proposal_id, confirm=True)
+    journal_path = root / ".aurix" / "transactions" / f"{proposal_id}.json"
+    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+    journal.update(
+        state="recovery_interrupted", recovery="manual_intervention_required"
+    )
+    journal_path.write_text(json.dumps(journal), encoding="utf-8")
+    subprocess.run(
+        [
+            "git", "-C", str(root), "apply", "--reverse",
+            "--whitespace=error", "-"
+        ],
+        input=(root / ".aurix" / "proposals" / f"{proposal_id}.diff").read_text(
+            encoding="utf-8"
+        ),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    original_write = patches._write_transaction_journal
+    original_append = patches.append_audit_event
+    changed = False
+    audit_events = []
+
+    def write_then_edit_journal(workspace, current_id, record):
+        nonlocal changed
+        original_write(workspace, current_id, record)
+        if record.get("state") == "rolled_back" and not changed:
+            changed = True
+            journal_path.write_text(
+                journal_path.read_text(encoding="utf-8") + " ",
+                encoding="utf-8",
+            )
+
+    def record_audit(workspace, event, current_id, details):
+        audit_events.append(event)
+        return original_append(workspace, event, current_id, details)
+
+    monkeypatch.setattr(
+        patches, "_write_transaction_journal", write_then_edit_journal
+    )
+    monkeypatch.setattr(patches, "append_audit_event", record_audit)
+
+    with pytest.raises(
+        PermissionError,
+        match="Recovery journal changed after finalization persistence",
+    ):
+        finalize_interrupted_recovery(root, proposal_id, confirm=True)
+
+    assert changed
+    assert "transaction_recovery_finalized" not in audit_events
+    assert (root / "app.py").read_text(encoding="utf-8") == "value = 'old'" + chr(10)
+    assert journal_path.read_text(encoding="utf-8").endswith(" ")
+
+
+
+def test_workspace_operation_lock_rejects_path_replacement_during_acquisition(
+    tmp_path, monkeypatch
+):
+    from aurix.tools import patches
+
+    root, _ = make_repo(tmp_path)
+    lock_path = root / ".aurix" / "operation.lock"
+    real_fsync = patches.os.fsync
+    replaced = False
+
+    def replace_lock_after_file_sync(fd):
+        nonlocal replaced
+        result = real_fsync(fd)
+        if not replaced:
+            replaced = True
+            lock_path.unlink()
+            lock_path.write_text("external lock evidence", encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(patches.os, "fsync", replace_lock_after_file_sync)
+    with pytest.raises(
+        PermissionError, match="Workspace operation lock changed during acquisition"
+    ):
+        with patches._workspace_operation_lock(root):
+            pytest.fail("must not enter critical section after lock replacement")
+
+    assert replaced
+    assert lock_path.read_text(encoding="utf-8") == "external lock evidence"
+
+def test_workspace_operation_lock_propagates_directory_fsync_io_error(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    real_fsync = os.fsync
+    calls = 0
+    entered = False
+
+    def fail_directory_fsync(fd):
+        nonlocal calls
+        calls += 1
+        # The first fsync is for the lock file; the second is for its directory.
+        if calls == 2:
+            raise OSError(errno.EIO, "simulated directory fsync failure")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(patches.os, "fsync", fail_directory_fsync)
+    with pytest.raises(OSError, match="simulated directory fsync failure"):
+        with _workspace_operation_lock(root):
+            entered = True
+
+    assert not entered
+    assert not (root / ".aurix" / "operation.lock").exists()
+
